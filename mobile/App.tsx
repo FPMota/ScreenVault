@@ -133,6 +133,21 @@ const i18n = {
     save: 'Save',
     usernamePlaceholder: 'Your username (e.g. filipe_series)',
     bioPlaceholder: 'Write a short bio about what you love watching...',
+    signInTitle: 'Welcome Back',
+    signInDesc: 'Access your private series and cinema vault.',
+    signUpTitle: 'Join ScreenVault',
+    signUpDesc: 'Start your personal diary. Private, cloud-synced, and tailored for cinema lovers.',
+    signInTab: 'Sign In',
+    signUpTab: 'Create Account',
+    emailPlaceholder: 'Email address',
+    passwordPlaceholder: 'Password',
+    confirmPasswordPlaceholder: 'Confirm password',
+    passwordsDontMatch: 'Passwords do not match.',
+    passwordTooShort: 'Password must be at least 8 characters.',
+    featurePrivate: '100% Private & Synced',
+    featureCatalog: 'Movies, Series & Watchlist',
+    alreadyHaveAccount: 'Already have an account? Sign in',
+    needAccount: "Don't have an account? Create one",
   },
   pt: {
     home: 'Início',
@@ -193,6 +208,21 @@ const i18n = {
     save: 'Guardar',
     usernamePlaceholder: 'O teu username (ex: filipe_series)',
     bioPlaceholder: 'Escreve uma pequena biografia do que gostas de ver...',
+    signInTitle: 'Bem-vindo de volta',
+    signInDesc: 'Acede ao teu cofre privado de séries e cinema.',
+    signUpTitle: 'Cria a tua conta',
+    signUpDesc: 'Começa o teu diário pessoal. Privado, sincronizado e feito para amantes de cinema.',
+    signInTab: 'Iniciar Sessão',
+    signUpTab: 'Criar Conta',
+    emailPlaceholder: 'Endereço de email',
+    passwordPlaceholder: 'Palavra-passe',
+    confirmPasswordPlaceholder: 'Confirmar palavra-passe',
+    passwordsDontMatch: 'As palavras-passe não coincidem.',
+    passwordTooShort: 'A palavra-passe tem de ter pelo menos 8 caracteres.',
+    featurePrivate: '100% Privado e Sincronizado',
+    featureCatalog: 'Filmes, Séries e Watchlist',
+    alreadyHaveAccount: 'Já tens conta? Iniciar sessão',
+    needAccount: 'Ainda não tens conta? Criar conta',
   },
 };
 
@@ -565,7 +595,7 @@ export default function App() {
   }
 
   if (isSupabaseConfigured && !session) {
-    return <SignIn onAuthenticate={authenticate} lang={lang} />;
+    return <SignIn onAuthenticate={authenticate} lang={lang} onChangeLang={changeLanguage} />;
   }
 
   const tabContent = (
@@ -680,44 +710,194 @@ export default function App() {
 function SignIn({
   onAuthenticate,
   lang,
+  onChangeLang,
 }: {
   onAuthenticate: (email: string, password: string, mode: 'signIn' | 'signUp') => Promise<string | null>;
   lang: Language;
+  onChangeLang: (l: Language) => void;
 }) {
+  const t = i18n[lang];
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [mode, setMode] = useState<'signIn' | 'signUp'>('signIn');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const isSignUp = mode === 'signUp';
+
   const submit = async () => {
+    setMessage('');
+    if (!email.trim()) {
+      setMessage(lang === 'pt' ? 'Insere o teu email.' : 'Please enter your email.');
+      return;
+    }
+    if (password.length < 8) {
+      setMessage(t.passwordTooShort);
+      return;
+    }
+    if (isSignUp && password !== confirmPassword) {
+      setMessage(t.passwordsDontMatch);
+      return;
+    }
+
     setLoading(true);
     const res = await onAuthenticate(email.trim(), password, mode);
     setLoading(false);
-    setMessage(res ?? (mode === 'signIn' ? 'Signed in.' : 'Account created.'));
+    setMessage(
+      res ??
+        (mode === 'signIn'
+          ? lang === 'pt'
+            ? 'Sessão iniciada.'
+            : 'Signed in.'
+          : lang === 'pt'
+          ? 'Conta criada com sucesso.'
+          : 'Account created.'),
+    );
+  };
+
+  const switchMode = (newMode: 'signIn' | 'signUp') => {
+    setMode(newMode);
+    setMessage('');
+    setConfirmPassword('');
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <View style={authSt.container}>
       <StatusBar style="light" />
-      <View style={authSt.screen}>
-        <Text style={styles.wordmark}>SCREENVAULT</Text>
-        <Text style={authSt.title}>{mode === 'signIn' ? (lang === 'pt' ? 'Bem-vindo de volta' : 'Welcome back') : (lang === 'pt' ? 'Cria a tua conta' : 'Create account')}</Text>
-        <Text style={authSt.description}>{lang === 'pt' ? 'A tua biblioteca de séries e filmes — privada e sincronizada.' : 'Your series & movies library — private and synced.'}</Text>
-        <TextInput value={email} onChangeText={setEmail} keyboardType="email-address"
-          autoCapitalize="none" placeholder="Email" placeholderTextColor="#7e6060" style={authSt.input} />
-        <TextInput value={password} onChangeText={setPassword} secureTextEntry
-          placeholder={lang === 'pt' ? 'Palavra-passe' : 'Password'} placeholderTextColor="#7e6060" style={authSt.input} />
-        <Pressable style={styles.primaryButton} onPress={submit} disabled={loading}>
-          {loading ? <ActivityIndicator color={C.cream} /> :
-            <Text style={styles.primaryButtonText}>{mode === 'signIn' ? (lang === 'pt' ? 'Iniciar sessão' : 'Sign in') : (lang === 'pt' ? 'Criar conta' : 'Create account')}</Text>}
-        </Pressable>
-        <Pressable onPress={() => { setMode(mode === 'signIn' ? 'signUp' : 'signIn'); setMessage(''); }}>
-          <Text style={authSt.switch}>{mode === 'signIn' ? (lang === 'pt' ? 'Ainda não tens conta? Criar conta' : "Don't have an account? Sign up") : (lang === 'pt' ? 'Já tens conta? Iniciar sessão' : 'Already have an account? Sign in')}</Text>
-        </Pressable>
-        {message ? <Text style={authSt.message}>{message}</Text> : null}
-      </View>
-    </SafeAreaView>
+
+      {/* Blurred Cinema Hall Background */}
+      <Image
+        source={require('./assets/icon.png')}
+        style={authSt.bgImage}
+        blurRadius={Platform.OS === 'web' ? 14 : 20}
+        resizeMode="cover"
+      />
+      <View style={authSt.bgOverlay} />
+
+      <SafeAreaView style={styles.safe}>
+        {/* Language switcher on top right */}
+        <View style={authSt.topLangRow}>
+          <Pressable
+            onPress={() => onChangeLang('en')}
+            style={[authSt.langPill, lang === 'en' && authSt.langPillActive]}
+          >
+            <Text style={[authSt.langPillText, lang === 'en' && authSt.langPillTextActive]}>
+              🇬🇧 EN
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => onChangeLang('pt')}
+            style={[authSt.langPill, lang === 'pt' && authSt.langPillActive]}
+          >
+            <Text style={[authSt.langPillText, lang === 'pt' && authSt.langPillTextActive]}>
+              🇵🇹 PT
+            </Text>
+          </Pressable>
+        </View>
+
+        <View style={authSt.screen}>
+          {/* Logo & Wordmark */}
+          <View style={authSt.logoRow}>
+            <Image source={require('./assets/icon.png')} style={authSt.appLogo} />
+            <Text style={authSt.wordmark}>SCREENVAULT</Text>
+          </View>
+
+          {/* Segmented Mode Selector: Sign In vs Create Account */}
+          <View style={authSt.tabSelector}>
+            <Pressable
+              onPress={() => switchMode('signIn')}
+              style={[authSt.tabBtn, !isSignUp && authSt.tabBtnActive]}
+            >
+              <Text style={[authSt.tabBtnText, !isSignUp && authSt.tabBtnTextActive]}>
+                {t.signInTab}
+              </Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => switchMode('signUp')}
+              style={[authSt.tabBtn, isSignUp && authSt.tabBtnActive]}
+            >
+              <Text style={[authSt.tabBtnText, isSignUp && authSt.tabBtnTextActive]}>
+                {t.signUpTab}
+              </Text>
+            </Pressable>
+          </View>
+
+          {/* Title & Description */}
+          <Text style={authSt.title}>{isSignUp ? t.signUpTitle : t.signInTitle}</Text>
+          <Text style={authSt.description}>{isSignUp ? t.signUpDesc : t.signInDesc}</Text>
+
+          {/* Feature highlights badge row - ONLY shown in Create Account */}
+          {isSignUp && (
+            <View style={authSt.featurePillsRow}>
+              <View style={authSt.featureBadge}>
+                <Text style={authSt.featureBadgeText}>✓ {t.featurePrivate}</Text>
+              </View>
+              <View style={authSt.featureBadge}>
+                <Text style={authSt.featureBadgeText}>✓ {t.featureCatalog}</Text>
+              </View>
+            </View>
+          )}
+
+          {/* Form Inputs */}
+          <TextInput
+            value={email}
+            onChangeText={setEmail}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            placeholder={t.emailPlaceholder}
+            placeholderTextColor="#8a6c74"
+            style={authSt.input}
+          />
+
+          <TextInput
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+            placeholder={t.passwordPlaceholder}
+            placeholderTextColor="#8a6c74"
+            style={authSt.input}
+          />
+
+          {/* Confirm Password - ONLY shown in Create Account */}
+          {isSignUp && (
+            <TextInput
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              secureTextEntry
+              placeholder={t.confirmPasswordPlaceholder}
+              placeholderTextColor="#8a6c74"
+              style={authSt.input}
+            />
+          )}
+
+          {/* Submit Button */}
+          <Pressable
+            style={[styles.primaryButton, { marginTop: 10 }]}
+            onPress={submit}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color={C.cream} />
+            ) : (
+              <Text style={styles.primaryButtonText}>
+                {isSignUp ? `★ ${t.signUpTab}` : `➜ ${t.signInTab}`}
+              </Text>
+            )}
+          </Pressable>
+
+          {/* Bottom toggle prompt */}
+          <Pressable onPress={() => switchMode(isSignUp ? 'signIn' : 'signUp')}>
+            <Text style={authSt.switch}>
+              {isSignUp ? t.alreadyHaveAccount : t.needAccount}
+            </Text>
+          </Pressable>
+
+          {message ? <Text style={authSt.message}>{message}</Text> : null}
+        </View>
+      </SafeAreaView>
+    </View>
   );
 }
 
@@ -2138,15 +2318,142 @@ function AvatarPicker({
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const authSt = StyleSheet.create({
-  screen: { flex: 1, justifyContent: 'center', padding: 26 },
-  title: { color: C.cream, fontSize: 30, fontWeight: '800', marginTop: 14 },
-  description: { color: C.muted, fontSize: 16, lineHeight: 22, marginTop: 8, marginBottom: 26 },
-  input: {
-    backgroundColor: C.surface, color: C.cream, height: 50, borderRadius: 11,
-    paddingHorizontal: 14, marginBottom: 12, fontSize: 16, borderWidth: 1, borderColor: C.border,
+  container: { flex: 1, backgroundColor: C.bg, position: 'relative' },
+  bgImage: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
+    opacity: 0.22,
   },
-  switch: { color: C.gold, textAlign: 'center', fontWeight: '700', marginTop: 20 },
-  message: { color: C.gold, textAlign: 'center', lineHeight: 20, marginTop: 18 },
+  bgOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(16, 12, 13, 0.88)',
+  },
+  screen: { flex: 1, justifyContent: 'center', paddingHorizontal: 26 },
+  topLangRow: {
+    position: 'absolute',
+    top: 14,
+    right: 20,
+    flexDirection: 'row',
+    gap: 6,
+    zIndex: 20,
+  },
+  langPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surface,
+  },
+  langPillActive: {
+    backgroundColor: C.bordeaux,
+    borderColor: C.bordeaux,
+  },
+  langPillText: {
+    color: C.muted,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  langPillTextActive: {
+    color: C.cream,
+  },
+  logoRow: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  appLogo: {
+    width: 68,
+    height: 68,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: C.border,
+  },
+  wordmark: {
+    color: C.bordeaux,
+    fontWeight: '800',
+    letterSpacing: 4,
+    fontSize: 12,
+    marginTop: 8,
+  },
+  tabSelector: {
+    flexDirection: 'row',
+    backgroundColor: C.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: 3,
+    marginBottom: 16,
+  },
+  tabBtn: {
+    flex: 1,
+    paddingVertical: 9,
+    borderRadius: 9,
+    alignItems: 'center',
+  },
+  tabBtnActive: {
+    backgroundColor: C.bordeaux,
+  },
+  tabBtnText: {
+    color: C.muted,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  tabBtnTextActive: {
+    color: C.cream,
+    fontWeight: '800',
+  },
+  title: { color: C.cream, fontSize: 24, fontWeight: '800', textAlign: 'center' },
+  description: {
+    color: C.muted,
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center',
+    marginTop: 6,
+    marginBottom: 16,
+    paddingHorizontal: 8,
+  },
+  featurePillsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 16,
+    flexWrap: 'wrap',
+  },
+  featureBadge: {
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  featureBadgeText: {
+    color: C.gold,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  input: {
+    backgroundColor: C.surface,
+    color: C.cream,
+    height: 48,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    marginBottom: 10,
+    fontSize: 15,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  switch: { color: C.gold, textAlign: 'center', fontWeight: '700', marginTop: 16, fontSize: 13 },
+  message: { color: C.gold, textAlign: 'center', lineHeight: 19, marginTop: 14, fontSize: 13 },
 });
 
 const homeSt = StyleSheet.create({
