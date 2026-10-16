@@ -334,6 +334,39 @@ export default function App() {
     [],
   );
 
+  // Prevent all zoom gestures on mobile web
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+
+    const preventGesture = (e: Event) => e.preventDefault();
+    const preventMultiTouch = (e: TouchEvent) => {
+      if (e.touches && e.touches.length > 1) {
+        e.preventDefault();
+      }
+    };
+    const preventWheelZoom = (e: WheelEvent) => {
+      if (e.ctrlKey) {
+        e.preventDefault();
+      }
+    };
+
+    document.addEventListener('gesturestart', preventGesture);
+    document.addEventListener('gesturechange', preventGesture);
+    document.addEventListener('gestureend', preventGesture);
+    document.addEventListener('touchstart', preventMultiTouch, { passive: false });
+    document.addEventListener('touchmove', preventMultiTouch, { passive: false });
+    document.addEventListener('wheel', preventWheelZoom, { passive: false });
+
+    return () => {
+      document.removeEventListener('gesturestart', preventGesture);
+      document.removeEventListener('gesturechange', preventGesture);
+      document.removeEventListener('gestureend', preventGesture);
+      document.removeEventListener('touchstart', preventMultiTouch);
+      document.removeEventListener('touchmove', preventMultiTouch);
+      document.removeEventListener('wheel', preventWheelZoom);
+    };
+  }, []);
+
   // Load initial local data
   useEffect(() => {
     Promise.all([
