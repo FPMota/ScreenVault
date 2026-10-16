@@ -9,6 +9,7 @@ import {
   FlatList,
   Image,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   SafeAreaView,
@@ -246,6 +247,34 @@ export default function App() {
     }).start();
   };
 
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_evt, gestureState) => {
+          return (
+            Math.abs(gestureState.dx) > 30 &&
+            Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 2.5
+          );
+        },
+        onPanResponderRelease: (_evt, gestureState) => {
+          if (gestureState.dx < -50) {
+            // Swiped left -> next tab
+            const curIdx = tabIndexRef.current;
+            if (curIdx < TABS.length - 1) {
+              goToTab(TABS[curIdx + 1]);
+            }
+          } else if (gestureState.dx > 50) {
+            // Swiped right -> previous tab
+            const curIdx = tabIndexRef.current;
+            if (curIdx > 0) {
+              goToTab(TABS[curIdx - 1]);
+            }
+          }
+        },
+      }),
+    [],
+  );
+
   // Load initial local data
   useEffect(() => {
     Promise.all([
@@ -320,7 +349,7 @@ export default function App() {
       .then(({ data }) => { if (data?.signedUrl) setAvatar(data.signedUrl); })
       .catch(() => undefined);
 
-    supabase.from('profiles').select('username, bio').eq('id', session.user.id).single()
+    supabase.from('profiles').select('username, bio, avatar_url').eq('id', session.user.id).single()
       .then(({ data, error }) => {
         if (!error && data) {
           if (data.username) {
@@ -330,6 +359,10 @@ export default function App() {
           if (data.bio) {
             setBio(data.bio);
             AsyncStorage.setItem(BIO_KEY, data.bio).catch(() => undefined);
+          }
+          if (data.avatar_url) {
+            setAvatar(data.avatar_url);
+            AsyncStorage.setItem(AVATAR_KEY, data.avatar_url).catch(() => undefined);
           }
         }
       }, () => undefined);
@@ -476,6 +509,16 @@ export default function App() {
     setAvatar(uri);
     AsyncStorage.setItem(AVATAR_KEY, uri).catch(() => undefined);
     if (!supabase || !session) return;
+
+    // Persist directly to profiles table so all devices (mobile + PC) sync the photo
+    try {
+      await supabase.from('profiles').upsert({
+        id: session.user.id,
+        avatar_url: uri,
+        updated_at: new Date().toISOString(),
+      });
+    } catch { /* ignore if column not yet added */ }
+
     try {
       const response = await fetch(uri);
       const blob = await response.blob();
@@ -526,7 +569,10 @@ export default function App() {
   }
 
   const tabContent = (
-    <Animated.View style={[styles.content, { transform: [{ translateX: slideAnim }] }]}>
+    <Animated.View
+      style={[styles.content, { transform: [{ translateX: slideAnim }] }]}
+      {...panResponder.panHandlers}
+    >
       {tab === 'home' && (
         <Home
           library={library}
@@ -712,12 +758,7 @@ function Home({
   );
 
   return (
-    <ScrollView
-      contentContainerStyle={styles.page}
-      showsVerticalScrollIndicator={false}
-      overScrollMode="always"
-      bounces
-    >
+    <View style={styles.flex}>
       <View style={homeSt.topBar}>
         <View>
           <Text style={styles.wordmark}>SCREENVAULT</Text>
@@ -733,6 +774,13 @@ function Home({
           <Text style={homeSt.searchOutlineText}>{t.search}</Text>
         </Pressable>
       </View>
+
+      <ScrollView
+        contentContainerStyle={homeSt.scrollContent}
+        showsVerticalScrollIndicator={false}
+        overScrollMode="always"
+        bounces
+      >
 
       {/* Continue Watching: Compact Posters, horizontal scroll, no mark watched button */}
       {continueWatching.length > 0 && (
@@ -813,7 +861,8 @@ function Home({
           <Empty text={t.emptyHome} />
         </View>
       )}
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -1042,7 +1091,6 @@ function Profile({
   onNavigateTab: (tab: Tab) => void;
 }) {
   const t = i18n[lang];
-  const [dashOpen, setDashOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [draftUsername, setDraftUsername] = useState(username);
   const [draftBio, setDraftBio] = useState(bio);
@@ -1057,14 +1105,6 @@ function Profile({
   const seriesRemaining = library.filter((s) => progress(s) < s.totalEpisodes && s.collection !== 'up_to_date').length;
   const episodesRemaining = library.reduce((sum, s) => sum + Math.max(0, s.totalEpisodes - progress(s)), 0);
   const toWatch = watchlist.length;
-
-  const stats: [string, string | number][] = [
-    [t.seriesWatched, seriesWatched],
-    [t.episodesWatchedStat, episodesWatched],
-    [t.seriesToFinish, seriesRemaining],
-    [t.episodesToGo, episodesRemaining],
-    [t.onWatchlist, toWatch],
-  ];
 
   // Continue watching list (sorted by lastWatched)
   const continueWatching = useMemo(() =>
@@ -1083,12 +1123,8 @@ function Profile({
   );
 
   return (
-    <ScrollView
-      contentContainerStyle={styles.page}
-      showsVerticalScrollIndicator={false}
-      overScrollMode="always"
-      bounces
-    >
+    <View style={styles.flex}>
+      {/* Fixed Sticky Header at Top */}
       <View style={profSt.headerRow}>
         <Text style={styles.pageTitle}>{t.profile}</Text>
         <Pressable onPress={onOpenSettings} style={profSt.gearButton}>
@@ -1096,42 +1132,54 @@ function Profile({
         </Pressable>
       </View>
 
-      <AvatarPicker avatar={avatar} onPick={onUploadAvatar} label={t.changePhoto} />
+      <ScrollView
+        contentContainerStyle={profSt.scrollContent}
+        showsVerticalScrollIndicator={false}
+        overScrollMode="always"
+        bounces
+      >
+        <AvatarPicker avatar={avatar} onPick={onUploadAvatar} label={t.changePhoto} />
 
-      {/* User Info (Username, Bio, Edit Profile button) */}
-      <View style={profSt.userInfoContainer}>
-        <Text style={profSt.usernameText}>
-          {username ? `@${username}` : (email ? `@${email.split('@')[0]}` : '@user')}
-        </Text>
-        {bio ? <Text style={profSt.bioText}>{bio}</Text> : null}
-        <Pressable
-          onPress={() => {
-            setDraftUsername(username);
-            setDraftBio(bio);
-            setEditModalOpen(true);
-          }}
-          style={profSt.editProfileBtn}
-        >
-          <Text style={profSt.editProfileBtnText}>✎ {t.editProfile}</Text>
-        </Pressable>
-      </View>
-
-      {/* Compact dashboard toggle */}
-      <Pressable style={profSt.dashToggle} onPress={() => setDashOpen(!dashOpen)}>
-        <Text style={profSt.dashToggleText}>{t.dashboard}</Text>
-        <Text style={profSt.dashChevron}>{dashOpen ? '▲' : '▼'}</Text>
-      </Pressable>
-
-      {dashOpen && (
-        <View style={profSt.dashGrid}>
-          {stats.map(([label, value]) => (
-            <View key={label} style={profSt.dashRow}>
-              <Text style={profSt.dashValue}>{value}</Text>
-              <Text style={profSt.dashLabel}>{label}</Text>
-            </View>
-          ))}
+        {/* User Info (Username, Bio, Edit Profile button) */}
+        <View style={profSt.userInfoContainer}>
+          <Text style={profSt.usernameText}>
+            {username ? `@${username}` : (email ? `@${email.split('@')[0]}` : '@user')}
+          </Text>
+          {bio ? <Text style={profSt.bioText}>{bio}</Text> : null}
+          <Pressable
+            onPress={() => {
+              setDraftUsername(username);
+              setDraftBio(bio);
+              setEditModalOpen(true);
+            }}
+            style={profSt.editProfileBtn}
+          >
+            <Text style={profSt.editProfileBtnText}>✎ {t.editProfile}</Text>
+          </Pressable>
         </View>
-      )}
+
+        {/* Ultra-compact Dashboard line */}
+        <View style={profSt.dashBar}>
+          <View style={profSt.dashItem}>
+            <Text style={profSt.dashNumber}>{seriesWatched}</Text>
+            <Text style={profSt.dashLabel} numberOfLines={1}>{t.seriesWatched}</Text>
+          </View>
+          <View style={profSt.dashSep} />
+          <View style={profSt.dashItem}>
+            <Text style={profSt.dashNumber}>{episodesWatched}</Text>
+            <Text style={profSt.dashLabel} numberOfLines={1}>{t.episodesWatchedStat}</Text>
+          </View>
+          <View style={profSt.dashSep} />
+          <View style={profSt.dashItem}>
+            <Text style={profSt.dashNumber}>{seriesRemaining}</Text>
+            <Text style={profSt.dashLabel} numberOfLines={1}>{t.seriesToFinish}</Text>
+          </View>
+          <View style={profSt.dashSep} />
+          <View style={profSt.dashItem}>
+            <Text style={profSt.dashNumber}>{toWatch}</Text>
+            <Text style={profSt.dashLabel} numberOfLines={1}>{t.onWatchlist}</Text>
+          </View>
+        </View>
 
       {/* Continue Watching section in Profile (Limited to 6, then See All) */}
       {continueWatching.length > 0 && (
@@ -1423,7 +1471,8 @@ function Profile({
           </View>
         </View>
       </Modal>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -2101,7 +2150,21 @@ const authSt = StyleSheet.create({
 });
 
 const homeSt = StyleSheet.create({
-  topBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 8 },
+  topBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    paddingHorizontal: 22,
+    paddingTop: 14,
+    paddingBottom: 8,
+    backgroundColor: C.bg,
+    zIndex: 10,
+  },
+  scrollContent: {
+    paddingHorizontal: 22,
+    paddingBottom: 110,
+    paddingTop: 4,
+  },
   titleWithIcon: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
   titleIcon: { width: 34, height: 34, borderRadius: 8, borderWidth: 1, borderColor: C.border },
   searchOutlineBtn: {
@@ -2187,7 +2250,21 @@ const catSt = StyleSheet.create({
 });
 
 const profSt = StyleSheet.create({
-  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 22,
+    paddingTop: 14,
+    paddingBottom: 8,
+    backgroundColor: C.bg,
+    zIndex: 10,
+  },
+  scrollContent: {
+    paddingHorizontal: 22,
+    paddingBottom: 110,
+    paddingTop: 6,
+  },
   gearButton: { padding: 8 },
   gearIcon: { fontSize: 22, color: C.muted },
   avatarContainer: { alignItems: 'center', marginBottom: 10 },
@@ -2216,23 +2293,22 @@ const profSt = StyleSheet.create({
   accountEmail: { color: C.muted, fontSize: 14, textAlign: 'center' },
   signOutButton: { marginTop: 14, backgroundColor: C.bordeaux, borderRadius: 10, padding: 12, alignItems: 'center' },
   signOutText: { color: C.cream, fontWeight: '800', fontSize: 14 },
-  dashToggle: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: C.surface, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 12,
-    marginTop: 6, borderWidth: 1, borderColor: C.border,
+  dashBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    backgroundColor: C.surface,
+    borderRadius: 10,
+    paddingVertical: 9,
+    paddingHorizontal: 6,
+    borderWidth: 1,
+    borderColor: C.border,
+    marginTop: 4,
   },
-  dashToggleText: { color: C.cream, fontWeight: '700', fontSize: 14 },
-  dashChevron: { color: C.muted, fontSize: 11 },
-  dashGrid: {
-    backgroundColor: C.surface, borderRadius: 10, borderWidth: 1,
-    borderColor: C.border, marginTop: 4, overflow: 'hidden',
-  },
-  dashRow: {
-    flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16,
-    paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border,
-  },
-  dashValue: { color: C.bordeaux, fontWeight: '800', fontSize: 18, minWidth: 52 },
-  dashLabel: { color: C.muted, fontSize: 13, marginLeft: 12 },
+  dashItem: { flex: 1, alignItems: 'center', paddingHorizontal: 2 },
+  dashNumber: { color: C.bordeauxLight, fontSize: 16, fontWeight: '800' },
+  dashLabel: { color: C.muted, fontSize: 9, fontWeight: '700', marginTop: 1, textAlign: 'center' },
+  dashSep: { width: 1, height: 20, backgroundColor: C.border },
   sectionBar: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     marginBottom: 4,
@@ -2367,15 +2443,21 @@ const styles = StyleSheet.create({
   sectionHeader: { color: C.cream, fontSize: 18, fontWeight: '800' },
   subtitle: { color: C.muted, fontSize: 13, marginBottom: 10 },
   libraryHeader: {
-    paddingHorizontal: 22, paddingTop: 14, paddingBottom: 6,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 22,
+    paddingTop: 14,
+    paddingBottom: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: C.bg,
+    zIndex: 10,
   },
   search: {
     marginHorizontal: 22, marginTop: 8, marginBottom: 8,
     backgroundColor: C.surface, borderRadius: 10, paddingHorizontal: 14,
     height: 40, color: C.cream, fontSize: 15, borderWidth: 1, borderColor: C.border,
   },
-  filtersWrapper: { marginBottom: 10 },
+  filtersWrapper: { marginBottom: 10, backgroundColor: C.bg, zIndex: 10 },
   filters: { paddingHorizontal: 22, gap: 6 },
   chip: { borderWidth: 1, borderColor: C.border, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5 },
   chipActive: { backgroundColor: C.bordeaux, borderColor: C.bordeaux },
@@ -2388,7 +2470,7 @@ const styles = StyleSheet.create({
   },
   poster: { height: 56, width: 39, borderRadius: 5, backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
   posterText: { color: C.bordeaux, fontSize: 18, fontWeight: '800' },
-  rowBody: { flex: 1 },
+  rowBody: { flex: 1, marginLeft: 14 },
   rowTitle: { color: C.cream, fontSize: 15, fontWeight: '700' },
   rowMeta: { color: C.muted, fontSize: 11, marginTop: 2 },
   rowProgress: { color: C.gold, fontSize: 11, marginTop: 3 },

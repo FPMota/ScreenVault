@@ -4,8 +4,8 @@
   "description": "O teu diário privado de séries.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#101820",
-  "theme_color": "#101820",
+  "background_color": "#100C0D",
+  "theme_color": "#100C0D",
   "icons": [
     {
       "src": "/apple-touch-icon.png",

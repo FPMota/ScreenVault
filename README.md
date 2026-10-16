@@ -1,68 +1,119 @@
 # ScreenVault
 
-ScreenVault é o meu diário privado de séries. Nasceu porque uso o Banco de Séries há anos para saber em que episódio vou, mas queria um espaço mais pessoal e visual, inspirado na experiência do Letterboxd: uma biblioteca bonita, avaliações, reviews, listas e um diário do que vejo.
+ScreenVault is my personal series tracker. It started because I wanted something like Letterboxd but for series — a beautiful private library with progress tracking, watchlist, reviews, and diary stats.
 
-O Letterboxd continua a ser o meu lugar para filmes. O ScreenVault existe para preencher essa mesma necessidade no mundo das séries, sem misturar os dois hábitos.
+## Features
 
-## Para que serve
+- **Home** — "Continue Watching" recommendation strip + recently completed
+- **Library** — full series catalogue with filters: All · Watching · Finished – To Continue · Up to Date
+- **Watchlist** — save titles you want to watch in the future
+- **Profile** — stats dashboard, profile photo, and settings (sign out)
+- **Sync** — Supabase backend syncs data across all your devices
+- **PWA** — installable on iPhone via Safari → Add to Home Screen
 
-Uso o ScreenVault para manter todas as minhas séries num único sítio e acompanhar o meu percurso com cada uma:
+---
 
-- Guardar séries que estou a ver, quero continuar ou já terminei
-- Marcar o progresso de episódios
-- Dar uma avaliação de 1 a 5 estrelas
-- Escrever reviews pessoais
-- Consultar um diário e estatísticas da minha biblioteca
+## Tech Stack
 
-A aplicação é pessoal e foi pensada primeiro para iPhone. A versão web funciona como uma PWA: abre no Safari e pode ser adicionada ao ecrã principal como uma app.
+### Architecture
 
-## Privacidade
+The app follows a **single-file component architecture** for the React Native layer, with a **serverless backend** via Supabase (PostgreSQL + Auth + Storage). Deployment is handled automatically by Vercel on every `git push`.
 
-O repositório é público, mas a minha biblioteca não é publicada. A lista, o progresso, as avaliações e as reviews são guardados apenas no armazenamento local do dispositivo.
+```
+┌─────────────────────────────────────────────┐
+│  Client  (React Native / Expo Web / PWA)    │
+│  App.tsx — all screens and components       │
+├─────────────────────────────────────────────┤
+│  lib/tmdb.ts       — TMDB REST API client   │
+│  lib/supabase.ts   — Supabase JS client     │
+├─────────────────────────────────────────────┤
+│  Backend (Supabase)                         │
+│  ├── PostgreSQL (series_entries, watchlist) │
+│  ├── Auth (email + password)                │
+│  └── Storage (avatars bucket)               │
+├─────────────────────────────────────────────┤
+│  External API                               │
+│  └── TMDB — movie & series metadata         │
+└─────────────────────────────────────────────┘
+```
 
-O ficheiro pessoal `data/imports/series-progress.json` fica fora do Git. Depois de abrir a app, vou a **Perfil → Importar lista privada** e colo o conteúdo completo desse ficheiro.
+### Languages & Frameworks
 
-## Abrir no iPhone
+| Layer | Technology |
+|---|---|
+| Language | **TypeScript** |
+| UI Framework | **React Native** 0.88 |
+| Cross-platform runtime | **Expo** ~58 (SDK 58) |
+| Web target | **React Native Web** + Expo Web |
+| State management | React built-in (`useState`, `useEffect`, `useMemo`) |
+| Local persistence | **AsyncStorage** (`@react-native-async-storage`) |
+| Backend / Database | **Supabase** (PostgreSQL + Row Level Security) |
+| Auth | **Supabase Auth** (email + password) |
+| File storage | **Supabase Storage** (avatars bucket) |
+| Movie/series data | **TMDB API** (The Movie Database) |
+| Deployment | **Vercel** (static web export via `expo export`) |
+| Build tooling | **Metro** (bundler), **TypeScript** compiler |
+| Linting | **ESLint** + `eslint-config-expo` |
 
-Depois do deploy automático no Vercel, abro o URL no Safari e escolho **Partilhar → Adicionar ao ecrã principal**. A app passa a aparecer no iPhone como um atalho próprio.
+### Database schema
 
-Para testar durante o desenvolvimento com Expo Go:
+Two main tables in PostgreSQL (hosted on Supabase):
 
-1. Instalar **Expo Go** no iPhone.
-2. Ligar o iPhone e o computador à mesma rede Wi-Fi.
-3. Executar:
+- **`series_entries`** — user's tracked series/movies with progress, collection status, rating, and review
+- **`watchlist`** — titles the user wants to watch in the future
 
-   ```powershell
-   cd C:\ScreenVault\mobile
-   npm run start -- --lan
-   ```
+Both tables use **Row Level Security (RLS)** — each user can only read/write their own rows.
 
-4. Ler o código QR com a Câmara e abrir no Expo Go.
+---
 
-## Deploy
+## Running Locally
 
-O Vercel usa [vercel.json](vercel.json) para instalar as dependências da pasta `mobile`, gerar a versão web e publicar a pasta `mobile/dist`. Um `git push` para o repositório ligado ao Vercel desencadeia um novo deploy.
+```powershell
+cd C:\ScreenVault\mobile
+npm install
+npm start          # Expo dev server (scan QR with Expo Go)
+npm run web        # Open in browser at localhost:8081
+```
 
-## Sincronização privada
+## Running on iPhone (Expo Go)
 
-O ScreenVault usa Supabase para sincronizar a biblioteca entre dispositivos. A app permite criar uma conta com email e palavra passe. Depois de confirmar o email, os dados ficam associados apenas a essa conta.
+1. Install **Expo Go** on iPhone.
+2. Connect iPhone and PC to the same Wi-Fi network.
+3. Run `npm run start -- --lan` and scan the QR code.
 
-Antes do primeiro uso:
+## Production Deploy
 
-1. No Supabase, abrir o **SQL Editor** e executar [supabase/schema.sql](supabase/schema.sql).
-2. Em **Authentication → URL Configuration**, adicionar o URL de produção do Vercel à lista de Redirect URLs.
-3. No Vercel, criar estas variáveis de ambiente para **Production** e **Preview**:
+Vercel watches the connected repository. On every `git push`, it:
 
-   ```text
-   EXPO_PUBLIC_SUPABASE_URL
-   EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-   EXPO_PUBLIC_TMDB_ACCESS_TOKEN
-   ```
+1. Runs `expo export --platform web` inside `mobile/`
+2. Serves the `mobile/dist/` folder as a static site
 
-O ficheiro `mobile/.env` é apenas local e nunca deve ser enviado para o Git. A publishable key é usada pela app; o acesso aos dados continua fechado pelas regras da base de dados, que permitem cada utilizador ler e alterar apenas os seus próprios registos.
+The app becomes a PWA — open in Safari and tap **Share → Add to Home Screen**.
 
-## Catálogo de séries e filmes
+---
 
-O catálogo será alimentado pelo [TMDB](https://www.themoviedb.org/): pesquisa de filmes e séries, capas, sinopses, temporadas e episódios. A base de dados já está preparada para guardar ambos os tipos de conteúdo, bem como o respetivo ID do TMDB.
+## Environment Variables
 
-Para ligar a pesquisa à app, é preciso criar uma conta de developer no TMDB e gerar uma API Read Access Token. Esse valor ficará apenas no `mobile/.env` e nas Environment Variables do Vercel como `EXPO_PUBLIC_TMDB_ACCESS_TOKEN`; nunca deve ser enviado para o Git.
+Create `mobile/.env` (never commit this):
+
+```text
+EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+EXPO_PUBLIC_TMDB_ACCESS_TOKEN=eyJhbGci...
+```
+
+Set the same variables in **Vercel → Settings → Environment Variables** for Production and Preview.
+
+---
+
+## Supabase Setup
+
+1. Open **SQL Editor** in your Supabase project and run [`supabase/schema.sql`](supabase/schema.sql).
+2. In **Storage**, create a private bucket named `avatars` and apply the storage policies shown (commented) at the bottom of the schema file.
+3. In **Authentication → URL Configuration**, add your Vercel production URL to the Redirect URLs list.
+
+---
+
+## Privacy
+
+The repository is public but your library is not. All data is stored in your own Supabase project under your authenticated user ID, protected by Row Level Security. No data is ever visible to other users.
