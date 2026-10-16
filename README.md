@@ -1,24 +1,44 @@
 # ScreenVault
 
-A private mobile diary for series: progress, ratings and reviews in one place.
+ScreenVault é o meu diário privado de séries. Nasceu porque uso o Banco de Séries há anos para saber em que episódio vou, mas queria um espaço mais pessoal e visual, inspirado na experiência do Letterboxd: uma biblioteca bonita, avaliações, reviews, listas e um diário do que vejo.
 
-## Run it on an iPhone
+O Letterboxd continua a ser o meu lugar para filmes. O ScreenVault existe para preencher essa mesma necessidade no mundo das séries, sem misturar os dois hábitos.
 
-1. Install **Expo Go** from the App Store.
-2. Connect the iPhone and this computer to the same Wi-Fi network.
-3. In PowerShell, run:
+## Para que serve
+
+Uso o ScreenVault para manter todas as minhas séries num único sítio e acompanhar o meu percurso com cada uma:
+
+- Guardar séries que estou a ver, quero continuar ou já terminei
+- Marcar o progresso de episódios
+- Dar uma avaliação de 1 a 5 estrelas
+- Escrever reviews pessoais
+- Consultar um diário e estatísticas da minha biblioteca
+
+A aplicação é pessoal e foi pensada primeiro para iPhone. A versão web funciona como uma PWA: abre no Safari e pode ser adicionada ao ecrã principal como uma app.
+
+## Privacidade
+
+O repositório é público, mas a minha biblioteca não é publicada. A lista, o progresso, as avaliações e as reviews são guardados apenas no armazenamento local do dispositivo.
+
+O ficheiro pessoal `data/imports/series-progress.json` fica fora do Git. Depois de abrir a app, vou a **Perfil → Importar lista privada** e colo o conteúdo completo desse ficheiro.
+
+## Abrir no iPhone
+
+Depois do deploy automático no Vercel, abro o URL no Safari e escolho **Partilhar → Adicionar ao ecrã principal**. A app passa a aparecer no iPhone como um atalho próprio.
+
+Para testar durante o desenvolvimento com Expo Go:
+
+1. Instalar **Expo Go** no iPhone.
+2. Ligar o iPhone e o computador à mesma rede Wi-Fi.
+3. Executar:
 
    ```powershell
    cd C:\ScreenVault\mobile
    npm run start -- --lan
    ```
 
-4. Scan the QR code with the Camera app, then open it in Expo Go.
+4. Ler o código QR com a Câmara e abrir no Expo Go.
 
-Progress, ratings, reviews and the series list are stored locally on the iPhone. The personal export in `data/imports/series-progress.json` is ignored by Git and never ships with the website. In the app, open **Perfil → Importar lista privada**, then paste the complete contents of that file.
+## Deploy
 
-## Deploy on Vercel
-
-Vercel is configured to build the `mobile` folder when this repository is deployed from its root. Push these changes to the linked repository and Vercel will publish the PWA automatically.
-
-On the iPhone, open the deployed link in Safari, select **Partilhar** and choose **Adicionar ao ecrã principal**.
+O Vercel usa [vercel.json](vercel.json) para instalar as dependências da pasta `mobile`, gerar a versão web e publicar a pasta `mobile/dist`. Um `git push` para o repositório ligado ao Vercel desencadeia um novo deploy.
