@@ -45,7 +45,9 @@ O Vercel usa [vercel.json](vercel.json) para instalar as dependências da pasta 
 
 ## Sincronização privada
 
-O ScreenVault usa Supabase para sincronizar a biblioteca entre dispositivos. Antes do primeiro uso:
+O ScreenVault usa Supabase para sincronizar a biblioteca entre dispositivos. A app permite criar uma conta com email e palavra passe. Depois de confirmar o email, os dados ficam associados apenas a essa conta.
+
+Antes do primeiro uso:
 
 1. No Supabase, abrir o **SQL Editor** e executar [supabase/schema.sql](supabase/schema.sql).
 2. Em **Authentication → URL Configuration**, adicionar o URL de produção do Vercel à lista de Redirect URLs.
@@ -54,6 +56,13 @@ O ScreenVault usa Supabase para sincronizar a biblioteca entre dispositivos. Ant
    ```text
    EXPO_PUBLIC_SUPABASE_URL
    EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+   EXPO_PUBLIC_TMDB_ACCESS_TOKEN
    ```
 
 O ficheiro `mobile/.env` é apenas local e nunca deve ser enviado para o Git. A publishable key é usada pela app; o acesso aos dados continua fechado pelas regras da base de dados, que permitem cada utilizador ler e alterar apenas os seus próprios registos.
+
+## Catálogo de séries e filmes
+
+O catálogo será alimentado pelo [TMDB](https://www.themoviedb.org/): pesquisa de filmes e séries, capas, sinopses, temporadas e episódios. A base de dados já está preparada para guardar ambos os tipos de conteúdo, bem como o respetivo ID do TMDB.
+
+Para ligar a pesquisa à app, é preciso criar uma conta de developer no TMDB e gerar uma API Read Access Token. Esse valor ficará apenas no `mobile/.env` e nas Environment Variables do Vercel como `EXPO_PUBLIC_TMDB_ACCESS_TOKEN`; nunca deve ser enviado para o Git.
