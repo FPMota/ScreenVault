@@ -90,7 +90,7 @@ const i18n = {
     searchCatalogPrompt: 'Search movies or series...',
     search: 'Search',
     addContent: 'Add',
-    versionText: 'Version 1.1',
+    versionText: 'Version 1.2 - 16/10/2026',
     all: 'All',
     watching: 'Watching',
     finishedToContinue: 'Finished – To Continue',
@@ -184,7 +184,7 @@ const i18n = {
     searchCatalogPrompt: 'Pesquisar filmes ou séries...',
     search: 'Pesquisar',
     addContent: 'Adicionar',
-    versionText: 'Versão 1.1',
+    versionText: 'Versão 1.2 - 16/10/2026',
     all: 'Todas',
     watching: 'A ver',
     finishedToContinue: 'Terminadas por ver',
@@ -447,34 +447,65 @@ export default function App() {
   useEffect(() => {
     if (!supabase || !session) return;
 
-    supabase.from('series_entries').select('*').order('title').then(({ data, error }) => {
-      if (error || !data) return;
-      const cl: Series[] = data.map((r) => ({
-        title: r.title,
-        collection: r.collection as Collection,
-        watchedEpisodes: r.watched_episodes,
-        totalEpisodes: r.total_episodes,
-        mediaType: r.media_type as 'series' | 'movie',
-        tmdbId: r.tmdb_id ?? undefined,
-        posterPath: r.poster_path ?? undefined,
-        lastWatched: r.last_watched ?? undefined,
-      }));
-      const cp = Object.fromEntries(
-        data
-          .filter((r) => r.rating || r.review || r.last_watched)
-          .map((r) => [
-            r.title,
-            {
-              rating: r.rating ?? undefined,
-              review: r.review ?? undefined,
-              lastWatched: r.last_watched ?? undefined,
-            },
-          ]),
-      );
-      setLibrary(cl);
-      setPersonal((cur) => ({ ...cur, ...cp }));
-      AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(cl)).catch(() => undefined);
-    });
+    const fetchLibrary = () => {
+      if (!supabase || !session) return;
+      supabase
+        .from('series_entries')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .order('title')
+        .then(({ data, error }) => {
+          if (error || !data) return;
+          const cl: Series[] = data.map((r) => ({
+            title: r.title,
+            collection: r.collection as Collection,
+            watchedEpisodes: r.watched_episodes,
+            totalEpisodes: r.total_episodes,
+            mediaType: r.media_type as 'series' | 'movie',
+            tmdbId: r.tmdb_id ?? undefined,
+            posterPath: r.poster_path ?? undefined,
+            lastWatched: r.last_watched ?? undefined,
+          }));
+          const cp = Object.fromEntries(
+            data
+              .filter((r) => r.rating || r.review || r.last_watched)
+              .map((r) => [
+                r.title,
+                {
+                  rating: r.rating ?? undefined,
+                  review: r.review ?? undefined,
+                  lastWatched: r.last_watched ?? undefined,
+                },
+              ]),
+          );
+          setLibrary(cl);
+          setPersonal((cur) => ({ ...cur, ...cp }));
+          AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(cl)).catch(() => undefined);
+        });
+    };
+
+    const fetchWatchlist = () => {
+      if (!supabase || !session) return;
+      supabase
+        .from('watchlist')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .then(({ data, error }) => {
+          if (error || !data) return;
+          const items: TmdbResult[] = data.map((r) => ({
+            id: Number(r.tmdb_id) || Number(r.id) || 0,
+            mediaType: (r.media_type as 'series' | 'movie') || 'series',
+            title: r.title,
+            posterPath: r.poster_path ?? undefined,
+            overview: r.overview ?? undefined,
+          }));
+          setWatchlist(items);
+          AsyncStorage.setItem(WATCHLIST_KEY, JSON.stringify(items)).catch(() => undefined);
+        });
+    };
+
+    fetchLibrary();
+    fetchWatchlist();
 
     // Check user_metadata for avatar & banner
     if (session.user.user_metadata?.avatar_url) {
@@ -549,21 +580,58 @@ export default function App() {
       )
       .subscribe();
 
-    supabase.from('watchlist').select('*').then(({ data }) => {
-      if (!data) return;
-      const items: TmdbResult[] = data.map((r) => ({
-        id: r.tmdb_id,
-        mediaType: r.media_type as 'series' | 'movie',
-        title: r.title,
-        posterPath: r.poster_path ?? undefined,
-        overview: r.overview ?? undefined,
-      }));
-      setWatchlist(items);
-      AsyncStorage.setItem(WATCHLIST_KEY, JSON.stringify(items)).catch(() => undefined);
-    }).then(undefined, () => undefined);
+    // Realtime listener on watchlist table so watchlist updates across all devices instantly (e.g. mobile <-> pc)
+    const watchlistChannel = supabase
+      .channel(`watchlist-realtime-${session.user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'watchlist',
+          filter: `user_id=eq.${session.user.id}`,
+        },
+        () => {
+          fetchWatchlist();
+        },
+      )
+      .subscribe();
+
+    // Realtime listener on series_entries table
+    const seriesChannel = supabase
+      .channel(`series-realtime-${session.user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'series_entries',
+          filter: `user_id=eq.${session.user.id}`,
+        },
+        () => {
+          fetchLibrary();
+        },
+      )
+      .subscribe();
+
+    // Visibility / focus listener to re-sync immediately when phone screen turns on or user switches tabs
+    let visibilityCleanup = () => {};
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const handleVisibilityChange = () => {
+        if (!document.hidden) {
+          fetchLibrary();
+          fetchWatchlist();
+        }
+      };
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      visibilityCleanup = () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    }
 
     return () => {
       profileChannel.unsubscribe();
+      watchlistChannel.unsubscribe();
+      seriesChannel.unsubscribe();
+      visibilityCleanup();
     };
   }, [session]);
 
@@ -888,18 +956,20 @@ export default function App() {
       {tab === 'library' && (
         <Library
           library={library}
+          watchlist={watchlist}
           progress={progress}
           open={setSelected}
-          onOpenSearch={() => setSearchModalOpen(true)}
+          onAddToLibrary={addFromCatalog}
           lang={lang}
         />
       )}
       {tab === 'watchlist' && (
         <Watchlist
           items={watchlist}
+          library={library}
           open={setSelected}
           onRemove={removeFromWatchlist}
-          onOpenSearch={() => setSearchModalOpen(true)}
+          onAddToWatchlist={addToWatchlist}
           lang={lang}
         />
       )}
@@ -1333,20 +1403,57 @@ function Home({
 
 function Library({
   library,
+  watchlist,
   progress,
   open,
-  onOpenSearch,
+  onAddToLibrary,
   lang,
 }: {
   library: Series[];
+  watchlist: TmdbResult[];
   progress: (s: Series) => number;
-  open: (s: Series) => void;
-  onOpenSearch: () => void;
+  open: (item: Series | TmdbResult) => void;
+  onAddToLibrary: (item: TmdbResult) => void;
   lang: Language;
 }) {
   const t = i18n[lang];
-  const [filter, setFilter] = useState<Collection | 'all'>('all');
+  const [filter, setFilter] = useState<'all' | 'series' | 'movies'>('all');
   const [query, setQuery] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [catalogResults, setCatalogResults] = useState<TmdbResult[]>([]);
+
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) {
+      setCatalogResults([]);
+      setSearching(false);
+      return;
+    }
+
+    setSearching(true);
+    const timer = setTimeout(() => {
+      searchCatalog(q, lang === 'pt' ? 'pt-PT' : 'en-US')
+        .then((res) => setCatalogResults(res))
+        .catch(() => setCatalogResults([]))
+        .finally(() => setSearching(false));
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [query, lang]);
+
+  const isSearchingCatalog = query.trim().length >= 2;
+
+  // Filtered personal library items when not searching catalog
+  const filteredMyLibrary = useMemo(() => {
+    return library.filter((s) => {
+      if (filter === 'series' && s.mediaType === 'movie') return false;
+      if (filter === 'movies' && s.mediaType !== 'movie') return false;
+      if (query.trim() && !isSearchingCatalog) {
+        return s.title.toLowerCase().includes(query.trim().toLowerCase());
+      }
+      return true;
+    });
+  }, [library, filter, query, isSearchingCatalog]);
 
   const filterLabels: Record<Collection, string> = {
     watching: t.watching,
@@ -1354,20 +1461,10 @@ function Library({
     up_to_date: t.upToDate,
   };
 
-  const results = useMemo(() =>
-    library.filter((s) =>
-      (filter === 'all' || s.collection === filter) &&
-      s.title.toLowerCase().includes(query.toLowerCase())),
-    [library, filter, query]);
-
   return (
     <View style={styles.flex}>
       <View style={styles.libraryHeader}>
         <Text style={styles.pageTitle}>{t.library}</Text>
-        <Pressable onPress={onOpenSearch} style={homeSt.searchOutlineBtn}>
-          <SearchIcon size={14} color={C.bordeaux} />
-          <Text style={homeSt.searchOutlineText}>{t.addContent}</Text>
-        </Pressable>
       </View>
 
       <View style={styles.searchBarContainer}>
@@ -1375,10 +1472,13 @@ function Library({
         <TextInput
           value={query}
           onChangeText={setQuery}
-          placeholder={t.searchPlaceholder}
+          placeholder={lang === 'pt' ? 'Pesquisar para adicionar...' : 'Search to add...'}
           placeholderTextColor="#7e6060"
           style={styles.searchBarInput}
         />
+        {searching ? (
+          <ActivityIndicator size="small" color={C.gold} style={{ marginRight: 6 }} />
+        ) : null}
         {query ? (
           <Pressable onPress={() => setQuery('')} hitSlop={8} style={{ padding: 4 }}>
             <Text style={{ color: C.muted, fontSize: 13, fontWeight: '700' }}>✕</Text>
@@ -1386,39 +1486,144 @@ function Library({
         ) : null}
       </View>
 
-      <View style={styles.filtersWrapper}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
+      {!isSearchingCatalog && (
+        <View style={styles.filtersWrapper}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            overScrollMode="always"
+            bounces
+            contentContainerStyle={styles.filters}
+          >
+            <Chip
+              label={t.all}
+              active={filter === 'all'}
+              onPress={() => setFilter('all')}
+            />
+            <Chip
+              label={lang === 'pt' ? 'Minhas Séries' : 'My Series'}
+              active={filter === 'series'}
+              onPress={() => setFilter('series')}
+            />
+            <Chip
+              label={lang === 'pt' ? 'Meus Filmes' : 'My Movies'}
+              active={filter === 'movies'}
+              onPress={() => setFilter('movies')}
+            />
+          </ScrollView>
+        </View>
+      )}
+
+      {isSearchingCatalog ? (
+        catalogResults.length === 0 && !searching ? (
+          <View style={{ paddingHorizontal: 22, marginTop: 14 }}>
+            <Empty
+              text={
+                lang === 'pt'
+                  ? `Nenhum resultado encontrado para "${query}".`
+                  : `No results found for "${query}".`
+              }
+            />
+          </View>
+        ) : (
+          <FlatList
+            data={catalogResults}
+            keyExtractor={(item) => `cat-lib-${item.mediaType}-${item.id}`}
+            contentContainerStyle={styles.list}
+            showsVerticalScrollIndicator={false}
+            overScrollMode="always"
+            bounces
+            renderItem={({ item }) => {
+              const inLib = library.some(
+                (s) => s.tmdbId === item.id && (s.mediaType ?? 'series') === item.mediaType,
+              );
+              const inWl = watchlist.some(
+                (w) => w.id === item.id && (w.mediaType ?? 'series') === item.mediaType,
+              );
+
+              return (
+                <Pressable onPress={() => open(item)} style={catSt.result}>
+                  <PosterThumb posterPath={item.posterPath} title={item.title} size="md" />
+                  <View style={[styles.rowBody, { marginLeft: 12 }]}>
+                    <Text style={styles.rowTitle}>{item.title}</Text>
+                    <Text style={styles.rowMeta}>
+                      {item.mediaType === 'movie'
+                        ? (lang === 'pt' ? 'Filme' : 'Movie')
+                        : (lang === 'pt' ? 'Série' : 'Series')}
+                      {inLib ? ` · ${t.inLibrary}` : inWl ? ` · ${t.inWatchlist}` : ''}
+                    </Text>
+                    <Text numberOfLines={2} style={catSt.overview}>
+                      {item.overview || t.noOverview}
+                    </Text>
+                  </View>
+                  <View style={catSt.actionCol}>
+                    <Pressable
+                      style={[
+                        catSt.addButton,
+                        inLib && { backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
+                      ]}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        if (!inLib) {
+                          onAddToLibrary(item);
+                        } else {
+                          open(item);
+                        }
+                      }}
+                    >
+                      <Text style={[catSt.addText, inLib && { color: C.muted }]}>
+                        {inLib ? '✓' : `+ ${lang === 'pt' ? 'Adicionar' : 'Add'}`}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </Pressable>
+              );
+            }}
+          />
+        )
+      ) : (
+        <FlatList
+          data={filteredMyLibrary}
+          keyExtractor={(s) => `${s.mediaType ?? 'series'}-${s.tmdbId ?? s.title}`}
+          contentContainerStyle={styles.list}
+          showsVerticalScrollIndicator={false}
           overScrollMode="always"
           bounces
-          contentContainerStyle={styles.filters}
-        >
-          <Chip label={t.all} active={filter === 'all'} onPress={() => setFilter('all')} />
-          {(Object.keys(filterLabels) as Collection[]).map((k) => (
-            <Chip key={k} label={filterLabels[k]} active={filter === k} onPress={() => setFilter(k)} />
-          ))}
-        </ScrollView>
-      </View>
-
-      <FlatList
-        data={results}
-        keyExtractor={(s) => `${s.mediaType ?? 'series'}-${s.tmdbId ?? s.title}`}
-        contentContainerStyle={styles.list}
-        showsVerticalScrollIndicator={false}
-        overScrollMode="always"
-        bounces
-        renderItem={({ item }) => (
-          <SeriesRow
-            series={item}
-            watched={progress(item)}
-            press={() => open(item)}
-            collectionLabel={filterLabels[item.collection]}
-            t={t}
-            lang={lang}
-          />
-        )}
-      />
+          ListEmptyComponent={
+            <View style={{ marginTop: 14 }}>
+              <Empty
+                text={
+                  filter === 'movies'
+                    ? (lang === 'pt'
+                        ? 'Não tens filmes na tua biblioteca. Pesquisa acima para adicionar!'
+                        : 'No movies in your library. Search above to add!')
+                    : filter === 'series'
+                    ? (lang === 'pt'
+                        ? 'Não tens séries na tua biblioteca. Pesquisa acima para adicionar!'
+                        : 'No series in your library. Search above to add!')
+                    : (lang === 'pt'
+                        ? 'A tua biblioteca está vazia. Pesquisa acima para adicionar filmes e séries!'
+                        : 'Your library is empty. Search above to add shows and movies!')
+                }
+              />
+            </View>
+          }
+          renderItem={({ item }) => (
+            <SeriesRow
+              series={item}
+              watched={progress(item)}
+              press={() => open(item)}
+              collectionLabel={
+                item.mediaType === 'movie'
+                  ? (lang === 'pt' ? 'Filme' : 'Movie')
+                  : filterLabels[item.collection] ?? (lang === 'pt' ? 'Série' : 'Series')
+              }
+              t={t}
+              lang={lang}
+            />
+          )}
+        />
+      )}
     </View>
   );
 }
@@ -1427,43 +1632,163 @@ function Library({
 
 function Watchlist({
   items,
+  library,
   open,
   onRemove,
-  onOpenSearch,
+  onAddToWatchlist,
   lang,
 }: {
   items: TmdbResult[];
-  open: (item: TmdbResult) => void;
+  library: Series[];
+  open: (item: TmdbResult | Series) => void;
   onRemove: (item: TmdbResult) => void;
-  onOpenSearch: () => void;
+  onAddToWatchlist: (item: TmdbResult) => void;
   lang: Language;
 }) {
   const t = i18n[lang];
   const [isCompact, setIsCompact] = useState(true);
+  const [query, setQuery] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [catalogResults, setCatalogResults] = useState<TmdbResult[]>([]);
+
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) {
+      setCatalogResults([]);
+      setSearching(false);
+      return;
+    }
+
+    setSearching(true);
+    const timer = setTimeout(() => {
+      searchCatalog(q, lang === 'pt' ? 'pt-PT' : 'en-US')
+        .then((res) => setCatalogResults(res))
+        .catch(() => setCatalogResults([]))
+        .finally(() => setSearching(false));
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [query, lang]);
+
+  const isSearchingCatalog = query.trim().length >= 2;
+
+  // Local watchlist filtered by single character if typing
+  const displayItems = useMemo(() => {
+    if (query.trim() && !isSearchingCatalog) {
+      return items.filter((w) => w.title.toLowerCase().includes(query.trim().toLowerCase()));
+    }
+    return items;
+  }, [items, query, isSearchingCatalog]);
 
   return (
     <View style={styles.flex}>
       <View style={styles.libraryHeader}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <Text style={styles.pageTitle}>{t.watchlist}</Text>
-          <Pressable onPress={() => setIsCompact(!isCompact)} style={wlSt.viewModeBtn}>
-            <Text style={wlSt.viewModeIcon}>{isCompact ? '☰ List' : '▦ Grid'}</Text>
-          </Pressable>
+          {!isSearchingCatalog && (
+            <Pressable onPress={() => setIsCompact(!isCompact)} style={wlSt.viewModeBtn}>
+              <Text style={wlSt.viewModeIcon}>{isCompact ? '☰ List' : '▦ Grid'}</Text>
+            </Pressable>
+          )}
         </View>
-        <Pressable onPress={onOpenSearch} style={homeSt.searchOutlineBtn}>
-          <SearchIcon size={14} color={C.bordeaux} />
-          <Text style={homeSt.searchOutlineText}>{t.addContent}</Text>
-        </Pressable>
       </View>
 
-      {items.length === 0 ? (
+      <View style={styles.searchBarContainer}>
+        <SearchIcon size={16} color={C.bordeaux} />
+        <TextInput
+          value={query}
+          onChangeText={setQuery}
+          placeholder={lang === 'pt' ? 'Pesquisar para adicionar à watchlist...' : 'Search to add to watchlist...'}
+          placeholderTextColor="#7e6060"
+          style={styles.searchBarInput}
+        />
+        {searching ? (
+          <ActivityIndicator size="small" color={C.gold} style={{ marginRight: 6 }} />
+        ) : null}
+        {query ? (
+          <Pressable onPress={() => setQuery('')} hitSlop={8} style={{ padding: 4 }}>
+            <Text style={{ color: C.muted, fontSize: 13, fontWeight: '700' }}>✕</Text>
+          </Pressable>
+        ) : null}
+      </View>
+
+      {isSearchingCatalog ? (
+        catalogResults.length === 0 && !searching ? (
+          <View style={{ paddingHorizontal: 22, marginTop: 14 }}>
+            <Empty
+              text={
+                lang === 'pt'
+                  ? `Nenhum resultado encontrado para "${query}".`
+                  : `No results found for "${query}".`
+              }
+            />
+          </View>
+        ) : (
+          <FlatList
+            data={catalogResults}
+            keyExtractor={(item) => `cat-wl-${item.mediaType}-${item.id}`}
+            contentContainerStyle={styles.list}
+            showsVerticalScrollIndicator={false}
+            overScrollMode="always"
+            bounces
+            renderItem={({ item }) => {
+              const inLib = library.some(
+                (s) => s.tmdbId === item.id && (s.mediaType ?? 'series') === item.mediaType,
+              );
+              const inWl = items.some(
+                (w) => w.id === item.id && (w.mediaType ?? 'series') === item.mediaType,
+              );
+
+              return (
+                <Pressable onPress={() => open(item)} style={catSt.result}>
+                  <PosterThumb posterPath={item.posterPath} title={item.title} size="md" />
+                  <View style={[styles.rowBody, { marginLeft: 12 }]}>
+                    <Text style={styles.rowTitle}>{item.title}</Text>
+                    <Text style={styles.rowMeta}>
+                      {item.mediaType === 'movie'
+                        ? (lang === 'pt' ? 'Filme' : 'Movie')
+                        : (lang === 'pt' ? 'Série' : 'Series')}
+                      {inLib ? ` · ${t.inLibrary}` : inWl ? ` · ${t.inWatchlist}` : ''}
+                    </Text>
+                    <Text numberOfLines={2} style={catSt.overview}>
+                      {item.overview || t.noOverview}
+                    </Text>
+                  </View>
+                  <View style={catSt.actionCol}>
+                    <Pressable
+                      style={[
+                        catSt.addButton,
+                        inWl
+                          ? { backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border }
+                          : { backgroundColor: '#C4A35A' },
+                      ]}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        if (!inWl) {
+                          onAddToWatchlist(item);
+                        } else {
+                          open(item);
+                        }
+                      }}
+                    >
+                      <Text style={[catSt.addText, inWl && { color: C.muted }]}>
+                        {inWl ? '✓' : `⭐ + ${lang === 'pt' ? 'Watchlist' : 'Watchlist'}`}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </Pressable>
+              );
+            }}
+          />
+        )
+      ) : displayItems.length === 0 ? (
         <View style={{ paddingHorizontal: 22, marginTop: 14 }}>
           <Empty text={t.emptyWatchlist} />
         </View>
       ) : isCompact ? (
         <FlatList
           key="compact-grid"
-          data={items}
+          data={displayItems}
           numColumns={3}
           keyExtractor={(item) => `${item.mediaType}-${item.id}`}
           contentContainerStyle={wlSt.gridContainer}
@@ -1496,7 +1821,7 @@ function Watchlist({
       ) : (
         <FlatList
           key="detailed-list"
-          data={items}
+          data={displayItems}
           keyExtractor={(item) => `${item.mediaType}-${item.id}`}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
@@ -2157,19 +2482,37 @@ function DestinationSlider({
   useEffect(() => {
     if (!isDragging.current) {
       Animated.spring(translateX, {
-        toValue: targetX,
-        friction: 8,
+        toValue: getTargetX(state),
+        friction: 7,
         tension: 65,
         useNativeDriver: true,
       }).start();
     }
-  }, [targetX]);
+  }, [state, slotWidth]);
+
+  const handleSlotPress = (dest: 'library' | 'watchlist' | 'none') => {
+    isDragging.current = false;
+    const nextTarget = getTargetX(dest);
+    Animated.spring(translateX, {
+      toValue: nextTarget,
+      friction: 7,
+      tension: 65,
+      useNativeDriver: true,
+    }).start();
+
+    if (state !== dest) {
+      if (dest === 'library' || dest === 'watchlist') {
+        triggerConfetti();
+      }
+      onChange(dest);
+    }
+  };
 
   const panResponder = useMemo(
     () =>
       PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > 3,
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > 4,
         onPanResponderGrant: () => {
           isDragging.current = true;
           dragStart.current = getTargetX(state);
@@ -2181,76 +2524,51 @@ function DestinationSlider({
         onPanResponderRelease: (_e, gestureState) => {
           isDragging.current = false;
           const currentPos = Math.max(0, Math.min(slotWidth * 2, dragStart.current + gestureState.dx));
-
-          // Midpoints between slots:
-          const m1 = slotWidth * 0.5;
-          const m2 = slotWidth * 1.5;
+          const vx = gestureState.vx ?? 0;
 
           let nextDest: 'library' | 'watchlist' | 'none' = state;
 
           if (state === 'library') {
-            if (currentPos < m1) {
-              // Did not reach halfway to middle -> falls back to library ("cai onde tava")
-              nextDest = 'library';
-            } else if (currentPos < m2) {
-              // Crossed halfway into middle -> snaps to none (Remover)
+            if (vx > 0.8 || currentPos > slotWidth * 1.4) {
+              nextDest = 'watchlist';
+            } else if (vx > 0.2 || currentPos > slotWidth * 0.3) {
               nextDest = 'none';
             } else {
-              // Crossed all the way to right -> snaps to watchlist
-              nextDest = 'watchlist';
+              nextDest = 'library';
             }
-          } else if (state === 'none') {
-            if (currentPos < m1) {
-              // Crossed halfway to left -> snaps to library
+          } else if (state === 'watchlist') {
+            if (vx < -0.8 || currentPos < slotWidth * 0.6) {
               nextDest = 'library';
-            } else if (currentPos > m2) {
-              // Crossed halfway to right -> snaps to watchlist
-              nextDest = 'watchlist';
-            } else {
-              // Did not reach either side halfway -> falls back to center ("cai onde tava")
+            } else if (vx < -0.2 || currentPos < slotWidth * 1.7) {
               nextDest = 'none';
+            } else {
+              nextDest = 'watchlist';
             }
           } else {
-            // state === 'watchlist'
-            if (currentPos > m2) {
-              // Did not reach halfway to middle -> falls back to watchlist ("cai onde tava")
-              nextDest = 'watchlist';
-            } else if (currentPos > m1) {
-              // Crossed halfway into middle -> snaps to none (Remover)
-              nextDest = 'none';
-            } else {
-              // Crossed all the way to left -> snaps to library
+            // state === 'none' (center)
+            if (vx < -0.2 || currentPos < slotWidth * 0.7) {
               nextDest = 'library';
+            } else if (vx > 0.2 || currentPos > slotWidth * 1.3) {
+              nextDest = 'watchlist';
+            } else {
+              nextDest = 'none';
             }
           }
 
-          const nextTarget = getTargetX(nextDest);
+          handleSlotPress(nextDest);
+        },
+        onPanResponderTerminate: () => {
+          isDragging.current = false;
           Animated.spring(translateX, {
-            toValue: nextTarget,
+            toValue: getTargetX(state),
             friction: 7,
-            tension: 55,
+            tension: 65,
             useNativeDriver: true,
           }).start();
-
-          if (nextDest !== state) {
-            if (nextDest === 'library' || nextDest === 'watchlist') {
-              triggerConfetti();
-            }
-            onChange(nextDest);
-          }
         },
       }),
     [state, slotWidth, onChange],
   );
-
-  const handleSlotPress = (dest: 'library' | 'watchlist' | 'none') => {
-    if (state !== dest) {
-      if (dest === 'library' || dest === 'watchlist') {
-        triggerConfetti();
-      }
-      onChange(dest);
-    }
-  };
 
   // Watchlist: barra fica amarela (#D49B20 / #F5C518)
   // Biblioteca: barra fica vermelha bordeux (#8B1A2E / #A6223B)
@@ -2351,6 +2669,7 @@ function DestinationSlider({
           const w = e.nativeEvent.layout.width;
           if (w > 0) setTrackWidth(w);
         }}
+        {...panResponder.panHandlers}
       >
         {/* Animated Sliding Pill with the word written inside */}
         <Animated.View
@@ -2361,17 +2680,18 @@ function DestinationSlider({
               transform: [{ translateX }],
             },
           ]}
-          {...panResponder.panHandlers}
+          pointerEvents="none"
         >
           <Text style={[sliderSt.pillText, { color: pillTextColor }]} numberOfLines={1}>
             {pillLabel}
           </Text>
         </Animated.View>
 
-        {/* 3 Clickable Track Slots underneath */}
+        {/* 3 Clickable Track Slots on top of the pill */}
         <Pressable
           onPress={() => handleSlotPress('library')}
           style={[sliderSt.slot, { width: slotWidth }]}
+          hitSlop={8}
         >
           <Text
             style={[
@@ -2388,6 +2708,7 @@ function DestinationSlider({
         <Pressable
           onPress={() => handleSlotPress('none')}
           style={[sliderSt.slot, { width: slotWidth }]}
+          hitSlop={8}
         >
           <Text
             style={[
@@ -2404,6 +2725,7 @@ function DestinationSlider({
         <Pressable
           onPress={() => handleSlotPress('watchlist')}
           style={[sliderSt.slot, { width: slotWidth }]}
+          hitSlop={8}
         >
           <Text
             style={[
@@ -4059,7 +4381,7 @@ const sliderSt = StyleSheet.create({
     height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 5,
+    zIndex: 20,
     paddingHorizontal: 2,
   },
   slotText: {
