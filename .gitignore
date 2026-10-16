@@ -1,0 +1,13 @@
+.vercel/
+data/
+mobile/.claude/
+mobile/AGENTS.md
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p8
+*.p12
+*.mobileprovision
+*.keystore

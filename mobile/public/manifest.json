@@ -1,0 +1,17 @@
+{
+  "name": "ScreenVault",
+  "short_name": "ScreenVault",
+  "description": "O teu diário privado de séries.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#101820",
+  "theme_color": "#101820",
+  "icons": [
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
