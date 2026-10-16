@@ -89,6 +89,8 @@ const i18n = {
     searchPlaceholder: 'Search library...',
     searchCatalogPrompt: 'Search movies or series...',
     search: 'Search',
+    addContent: 'Add',
+    versionText: 'Version 1.1',
     all: 'All',
     watching: 'Watching',
     finishedToContinue: 'Finished – To Continue',
@@ -97,7 +99,7 @@ const i18n = {
     episodes: 'episodes',
     of: 'of',
     ep: 'Ep',
-    emptyHome: 'No activity yet. Tap Search to discover shows and movies!',
+    emptyHome: 'No activity yet. Tap Add to discover shows and movies!',
     emptyLibrary: 'No shows found.',
     emptyWatchlist: 'Your watchlist is empty. Add titles to watch later.',
     settings: 'Settings',
@@ -181,6 +183,8 @@ const i18n = {
     searchPlaceholder: 'Pesquisar na biblioteca...',
     searchCatalogPrompt: 'Pesquisar filmes ou séries...',
     search: 'Pesquisar',
+    addContent: 'Adicionar',
+    versionText: 'Versão 1.1',
     all: 'Todas',
     watching: 'A ver',
     finishedToContinue: 'Terminadas por ver',
@@ -189,7 +193,7 @@ const i18n = {
     episodes: 'episódios',
     of: 'de',
     ep: 'Ep',
-    emptyHome: 'Ainda sem atividade. Clica em Pesquisar para adicionar séries e filmes!',
+    emptyHome: 'Ainda sem atividade. Clica em Adicionar para adicionar séries e filmes!',
     emptyLibrary: 'Nenhuma série encontrada.',
     emptyWatchlist: 'A tua lista está vazia. Adiciona títulos para veres mais tarde.',
     settings: 'Definições',
@@ -957,7 +961,9 @@ export default function App() {
       ) : (
         <>
           {tabContent}
-          <TabBar tab={tab} setTab={goToTab} lang={lang} />
+          <View style={{ backgroundColor: C.surface }}>
+            <TabBar tab={tab} setTab={goToTab} lang={lang} />
+          </View>
           <SearchCatalogModal
             visible={searchModalOpen}
             close={() => setSearchModalOpen(false)}
@@ -1046,28 +1052,7 @@ function SignIn({
         resizeMode="cover"
       />
       <View style={authSt.bgOverlay} />
-
-      <SafeAreaView style={styles.safe}>
-        {/* Language switcher on top right */}
-        <View style={authSt.topLangRow}>
-          <Pressable
-            onPress={() => onChangeLang('en')}
-            style={[authSt.langPill, lang === 'en' && authSt.langPillActive]}
-          >
-            <Text style={[authSt.langPillText, lang === 'en' && authSt.langPillTextActive]}>
-              🇬🇧 EN
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => onChangeLang('pt')}
-            style={[authSt.langPill, lang === 'pt' && authSt.langPillActive]}
-          >
-            <Text style={[authSt.langPillText, lang === 'pt' && authSt.langPillTextActive]}>
-              🇵🇹 PT
-            </Text>
-          </Pressable>
-        </View>
-
+      <SafeAreaView style={[styles.safe, { backgroundColor: 'transparent' }]}>
         <View style={authSt.screen}>
           {/* Logo & Wordmark */}
           <View style={authSt.logoRow}>
@@ -1167,6 +1152,26 @@ function SignIn({
           </Pressable>
 
           {message ? <Text style={authSt.message}>{message}</Text> : null}
+
+          {/* Bottom language selector */}
+          <View style={authSt.bottomLangRow}>
+            <Pressable
+              onPress={() => onChangeLang('en')}
+              style={[authSt.langPill, lang === 'en' && authSt.langPillActive]}
+            >
+              <Text style={[authSt.langPillText, lang === 'en' && authSt.langPillTextActive]}>
+                🇬🇧 EN
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => onChangeLang('pt')}
+              style={[authSt.langPill, lang === 'pt' && authSt.langPillActive]}
+            >
+              <Text style={[authSt.langPillText, lang === 'pt' && authSt.langPillTextActive]}>
+                🇵🇹 PT
+              </Text>
+            </Pressable>
+          </View>
         </View>
       </SafeAreaView>
     </View>
@@ -1220,10 +1225,10 @@ function Home({
           </View>
         </View>
 
-        {/* Bordeaux Outline Search icon button */}
+        {/* Bordeaux Outline Add icon button */}
         <Pressable onPress={onOpenSearch} style={homeSt.searchOutlineBtn}>
           <SearchIcon size={14} color={C.bordeaux} />
-          <Text style={homeSt.searchOutlineText}>{t.search}</Text>
+          <Text style={homeSt.searchOutlineText}>{t.addContent}</Text>
         </Pressable>
       </View>
 
@@ -1361,7 +1366,7 @@ function Library({
         <Text style={styles.pageTitle}>{t.library}</Text>
         <Pressable onPress={onOpenSearch} style={homeSt.searchOutlineBtn}>
           <SearchIcon size={14} color={C.bordeaux} />
-          <Text style={homeSt.searchOutlineText}>{t.search}</Text>
+          <Text style={homeSt.searchOutlineText}>{t.addContent}</Text>
         </Pressable>
       </View>
 
@@ -1447,7 +1452,7 @@ function Watchlist({
         </View>
         <Pressable onPress={onOpenSearch} style={homeSt.searchOutlineBtn}>
           <SearchIcon size={14} color={C.bordeaux} />
-          <Text style={homeSt.searchOutlineText}>{t.search}</Text>
+          <Text style={homeSt.searchOutlineText}>{t.addContent}</Text>
         </Pressable>
       </View>
 
@@ -1913,6 +1918,11 @@ function Profile({
               </Text>
             </View>
           )}
+        </View>
+
+        {/* App Version Footer */}
+        <View style={profSt.versionFooter}>
+          <Text style={profSt.versionText}>{t.versionText}</Text>
         </View>
 
       {/* See All Full Modal */}
@@ -3016,7 +3026,7 @@ function SearchCatalogModal({
       <SafeAreaView style={styles.safe}>
         <View style={catSt.header}>
           <Pressable onPress={close}><Text style={styles.back}>‹ {t.cancel}</Text></Pressable>
-          <Text style={catSt.title}>{t.search}</Text>
+          <Text style={catSt.title}>{t.addContent}</Text>
         </View>
 
         {isTmdbConfigured ? (
@@ -3554,18 +3564,17 @@ const authSt = StyleSheet.create({
     backgroundColor: 'rgba(16, 12, 13, 0.88)',
   },
   screen: { flex: 1, justifyContent: 'center', paddingHorizontal: 26 },
-  topLangRow: {
-    position: 'absolute',
-    top: 14,
-    right: 20,
+  bottomLangRow: {
     flexDirection: 'row',
-    gap: 6,
-    zIndex: 20,
+    justifyContent: 'center',
+    gap: 12,
+    marginTop: 22,
+    alignSelf: 'center',
   },
   langPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: C.border,
     backgroundColor: C.surface,
@@ -3576,7 +3585,7 @@ const authSt = StyleSheet.create({
   },
   langPillText: {
     color: C.muted,
-    fontSize: 11,
+    fontSize: 12.5,
     fontWeight: '700',
   },
   langPillTextActive: {
@@ -3630,8 +3639,8 @@ const authSt = StyleSheet.create({
   title: { color: C.cream, fontSize: 24, fontWeight: '800', textAlign: 'center' },
   description: {
     color: C.muted,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 15,
+    lineHeight: 21,
     textAlign: 'center',
     marginTop: 6,
     marginBottom: 16,
@@ -3648,13 +3657,13 @@ const authSt = StyleSheet.create({
     backgroundColor: C.surface2,
     borderWidth: 1,
     borderColor: C.border,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 14,
   },
   featureBadgeText: {
     color: C.gold,
-    fontSize: 11,
+    fontSize: 12.5,
     fontWeight: '700',
   },
   input: {
@@ -3668,8 +3677,8 @@ const authSt = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.border,
   },
-  switch: { color: C.gold, textAlign: 'center', fontWeight: '700', marginTop: 16, fontSize: 13 },
-  message: { color: C.gold, textAlign: 'center', lineHeight: 19, marginTop: 14, fontSize: 13 },
+  switch: { color: C.gold, textAlign: 'center', fontWeight: '700', marginTop: 16, fontSize: 14 },
+  message: { color: C.gold, textAlign: 'center', lineHeight: 20, marginTop: 14, fontSize: 14 },
 });
 
 const homeSt = StyleSheet.create({
@@ -3693,27 +3702,27 @@ const homeSt = StyleSheet.create({
   searchOutlineBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     borderWidth: 1.5, borderColor: C.bordeaux, backgroundColor: 'transparent',
-    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, marginBottom: 4,
+    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, marginBottom: 4,
   },
   searchOutlineIcon: { fontSize: 15, color: C.bordeaux, fontWeight: '800' },
-  searchOutlineText: { color: C.cream, fontSize: 13, fontWeight: '700' },
+  searchOutlineText: { color: C.cream, fontSize: 14.5, fontWeight: '700' },
   continueWatchingRow: { paddingHorizontal: 22, gap: 12, paddingVertical: 4 },
-  compactCard: { width: 84, alignItems: 'center' },
+  compactCard: { width: 88, alignItems: 'center' },
   compactPoster: {
-    width: 80, height: 118, borderRadius: 8, overflow: 'hidden',
+    width: 84, height: 124, borderRadius: 8, overflow: 'hidden',
     backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center',
     borderWidth: 1, borderColor: C.border, position: 'relative',
   },
   compactPosterImg: { width: '100%', height: '100%' },
   fallbackPosterText: { color: C.bordeaux, fontSize: 24, fontWeight: '800' },
-  compactTitle: { color: C.cream, fontSize: 11, fontWeight: '600', marginTop: 5, textAlign: 'center', lineHeight: 14 },
+  compactTitle: { color: C.cream, fontSize: 13, fontWeight: '600', marginTop: 6, textAlign: 'center', lineHeight: 16 },
   epBadge: {
     position: 'absolute', bottom: 4, right: 4,
     backgroundColor: 'rgba(16,12,13,0.92)', borderRadius: 6,
     paddingHorizontal: 7, paddingVertical: 3,
     borderWidth: 1, borderColor: '#5C2D37',
   },
-  epBadgeText: { color: C.gold, fontSize: 12, fontWeight: '900', letterSpacing: 0.5 },
+  epBadgeText: { color: C.gold, fontSize: 12.5, fontWeight: '900', letterSpacing: 0.5 },
   emptySectionCard: {
     backgroundColor: C.surface,
     borderRadius: 10,
@@ -3727,7 +3736,7 @@ const homeSt = StyleSheet.create({
   },
   emptySectionText: {
     color: C.muted,
-    fontSize: 12,
+    fontSize: 14,
     fontStyle: 'italic',
     textAlign: 'center',
   },
@@ -3736,9 +3745,9 @@ const homeSt = StyleSheet.create({
 const wlSt = StyleSheet.create({
   viewModeBtn: {
     backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
-    paddingHorizontal: 9, paddingVertical: 4, borderRadius: 12,
+    paddingHorizontal: 11, paddingVertical: 5, borderRadius: 12,
   },
-  viewModeIcon: { color: C.gold, fontSize: 11, fontWeight: '700' },
+  viewModeIcon: { color: C.gold, fontSize: 13, fontWeight: '700' },
   gridContainer: { paddingHorizontal: 16, paddingBottom: 100, paddingTop: 10 },
   gridRow: { justifyContent: 'flex-start', gap: 12, marginBottom: 16 },
   gridCard: { width: (SCREEN_W - 32 - 24) / 3, alignItems: 'center' },
@@ -3749,39 +3758,39 @@ const wlSt = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   gridPosterImg: { width: '100%', height: '100%' },
-  gridTitle: { color: C.cream, fontSize: 11, fontWeight: '600', marginTop: 5, textAlign: 'center', lineHeight: 14 },
+  gridTitle: { color: C.cream, fontSize: 13, fontWeight: '600', marginTop: 5, textAlign: 'center', lineHeight: 16 },
   removeBadge: {
     position: 'absolute', top: 4, right: 4,
     backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 10,
-    width: 20, height: 20, alignItems: 'center', justifyContent: 'center',
+    width: 22, height: 22, alignItems: 'center', justifyContent: 'center',
   },
-  removeBadgeText: { color: C.cream, fontSize: 10, fontWeight: '800' },
+  removeBadgeText: { color: C.cream, fontSize: 11, fontWeight: '800' },
 });
 
 const catSt = StyleSheet.create({
-  addButton: { backgroundColor: C.bordeaux, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7 },
-  addText: { color: C.cream, fontSize: 13, fontWeight: '800' },
+  addButton: { backgroundColor: C.bordeaux, borderRadius: 8, paddingHorizontal: 13, paddingVertical: 7 },
+  addText: { color: C.cream, fontSize: 14, fontWeight: '800' },
   header: { padding: 22, flexDirection: 'row', alignItems: 'center', gap: 18 },
-  title: { color: C.cream, fontSize: 20, fontWeight: '800' },
+  title: { color: C.cream, fontSize: 22, fontWeight: '800' },
   searchRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 22, paddingBottom: 10 },
   searchInput: {
-    flex: 1, height: 46, borderRadius: 10, paddingHorizontal: 13,
+    flex: 1, height: 48, borderRadius: 10, paddingHorizontal: 13,
     color: C.cream, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
-    fontSize: 16,
+    fontSize: 16.5,
   },
   searchInputContainer: {
-    flex: 1, height: 46, borderRadius: 10, paddingHorizontal: 12,
+    flex: 1, height: 48, borderRadius: 10, paddingHorizontal: 12,
     backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
     flexDirection: 'row', alignItems: 'center', gap: 8,
   },
   searchInputWithIcon: {
-    flex: 1, height: '100%', color: C.cream, fontSize: 16,
+    flex: 1, height: '100%', color: C.cream, fontSize: 16.5,
   },
   searchButton: {
-    backgroundColor: C.bordeaux, borderRadius: 10, paddingHorizontal: 13,
+    backgroundColor: C.bordeaux, borderRadius: 10, paddingHorizontal: 14,
     justifyContent: 'center', minWidth: 70, alignItems: 'center',
   },
-  searchButtonText: { color: C.cream, fontWeight: '800' },
+  searchButtonText: { color: C.cream, fontWeight: '800', fontSize: 14.5 },
   result: {
     flexDirection: 'row', gap: 12, paddingVertical: 12,
     borderBottomWidth: 1, borderBottomColor: C.border, alignItems: 'flex-start',
@@ -3792,11 +3801,11 @@ const catSt = StyleSheet.create({
   },
   poster: { borderRadius: 6, overflow: 'hidden', backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center' },
   posterImage: { width: '100%', height: '100%' },
-  overview: { color: C.muted, fontSize: 12, lineHeight: 17, marginTop: 5 },
-  error: { color: C.error, paddingHorizontal: 22, marginTop: 10 },
+  overview: { color: C.muted, fontSize: 13.5, lineHeight: 18, marginTop: 5 },
+  error: { color: C.error, paddingHorizontal: 22, marginTop: 10, fontSize: 14 },
   actionCol: { justifyContent: 'center', alignSelf: 'center' },
   removeButton: { padding: 8, justifyContent: 'center' },
-  removeText: { color: C.muted, fontSize: 16 },
+  removeText: { color: C.muted, fontSize: 17 },
 });
 
 const profSt = StyleSheet.create({
@@ -3812,7 +3821,7 @@ const profSt = StyleSheet.create({
   },
   headerTitle: {
     color: C.cream,
-    fontSize: 28,
+    fontSize: 30,
     fontWeight: '800',
     fontFamily: 'serif',
     textShadowColor: 'rgba(0, 0, 0, 0.85)',
@@ -3832,7 +3841,7 @@ const profSt = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.12)',
   },
   gearIcon: {
-    fontSize: 20,
+    fontSize: 22,
     color: C.cream,
     textShadowColor: 'rgba(0, 0, 0, 0.85)',
     textShadowOffset: { width: 0, height: 1 },
@@ -3871,110 +3880,123 @@ const profSt = StyleSheet.create({
     marginBottom: 10,
     zIndex: 5,
   },
-  avatar: { width: 84, height: 84, borderRadius: 42, borderWidth: 2.5, borderColor: C.bordeaux },
+  avatar: { width: 88, height: 88, borderRadius: 44, borderWidth: 2.5, borderColor: C.bordeaux },
   avatarPlaceholder: {
-    width: 84, height: 84, borderRadius: 42, backgroundColor: C.surface2,
+    width: 88, height: 88, borderRadius: 44, backgroundColor: C.surface2,
     alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: C.border,
   },
-  avatarIcon: { fontSize: 36 },
+  avatarIcon: { fontSize: 38 },
   userInfoContainer: { alignItems: 'center', marginBottom: 14, paddingHorizontal: 20 },
   usernameText: {
-    color: C.cream, fontSize: 18, fontWeight: '800', marginBottom: 4,
+    color: C.cream, fontSize: 20, fontWeight: '800', marginBottom: 4,
     textShadowColor: 'rgba(0, 0, 0, 0.75)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4,
   },
   bioText: {
-    color: C.cream, fontSize: 13, textAlign: 'center', lineHeight: 18, marginBottom: 8,
+    color: C.cream, fontSize: 15, textAlign: 'center', lineHeight: 21, marginBottom: 8,
     opacity: 0.9, textShadowColor: 'rgba(0, 0, 0, 0.75)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4,
   },
   editProfileBtn: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(30, 21, 24, 0.85)',
-    borderWidth: 1, borderColor: C.border, paddingHorizontal: 12, paddingVertical: 6,
+    borderWidth: 1, borderColor: C.border, paddingHorizontal: 14, paddingVertical: 7,
     borderRadius: 16, marginTop: 4,
   },
-  editProfileBtnText: { color: C.gold, fontSize: 12, fontWeight: '700' },
-  inputLabel: { color: C.gold, fontSize: 12, fontWeight: '700', marginBottom: 6 },
+  editProfileBtnText: { color: C.gold, fontSize: 13.5, fontWeight: '700' },
+  inputLabel: { color: C.gold, fontSize: 13.5, fontWeight: '700', marginBottom: 6 },
   textInput: {
-    backgroundColor: C.surface2, color: C.cream, height: 44, borderRadius: 10,
-    paddingHorizontal: 12, fontSize: 16, borderWidth: 1, borderColor: C.border,
+    backgroundColor: C.surface2, color: C.cream, height: 46, borderRadius: 10,
+    paddingHorizontal: 12, fontSize: 16.5, borderWidth: 1, borderColor: C.border,
   },
-  bioInput: { height: 75, paddingTop: 10, textAlignVertical: 'top' },
-  accountEmail: { color: C.muted, fontSize: 14, textAlign: 'center' },
-  signOutButton: { marginTop: 14, backgroundColor: C.bordeaux, borderRadius: 10, padding: 12, alignItems: 'center' },
-  signOutText: { color: C.cream, fontWeight: '800', fontSize: 14 },
+  bioInput: { height: 78, paddingTop: 10, textAlignVertical: 'top' },
+  accountEmail: { color: C.muted, fontSize: 15, textAlign: 'center' },
+  signOutButton: { marginTop: 14, backgroundColor: C.bordeaux, borderRadius: 10, padding: 13, alignItems: 'center' },
+  signOutText: { color: C.cream, fontWeight: '800', fontSize: 15 },
   dashBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
     backgroundColor: C.surface,
     borderRadius: 10,
-    paddingVertical: 9,
+    paddingVertical: 10,
     paddingHorizontal: 6,
     borderWidth: 1,
     borderColor: C.border,
     marginTop: 4,
   },
   dashItem: { flex: 1, alignItems: 'center', paddingHorizontal: 2 },
-  dashNumber: { color: C.bordeauxLight, fontSize: 16, fontWeight: '800' },
-  dashLabel: { color: C.muted, fontSize: 9, fontWeight: '700', marginTop: 1, textAlign: 'center' },
-  dashSep: { width: 1, height: 20, backgroundColor: C.border },
+  dashNumber: { color: C.bordeauxLight, fontSize: 18, fontWeight: '800' },
+  dashLabel: { color: C.muted, fontSize: 11.5, fontWeight: '700', marginTop: 2, textAlign: 'center' },
+  dashSep: { width: 1, height: 22, backgroundColor: C.border },
   sectionBar: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     marginBottom: 4,
   },
   seeAllBtn: { paddingVertical: 4, paddingHorizontal: 8 },
-  seeAllText: { color: C.gold, fontSize: 13, fontWeight: '700' },
+  seeAllText: { color: C.gold, fontSize: 14.5, fontWeight: '700' },
   hCardRow: { paddingHorizontal: 22, gap: 12, paddingVertical: 4 },
-  hCard: { width: 78, alignItems: 'center' },
+  hCard: { width: 84, alignItems: 'center' },
   hPoster: {
-    width: 74, height: 108, borderRadius: 8, overflow: 'hidden',
+    width: 80, height: 116, borderRadius: 8, overflow: 'hidden',
     backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border,
     alignItems: 'center', justifyContent: 'center',
   },
   hPosterImg: { width: '100%', height: '100%' },
-  hTitle: { color: C.cream, fontSize: 10, fontWeight: '600', marginTop: 4, textAlign: 'center', lineHeight: 13 },
-  settingsSectionLabel: { color: C.gold, fontWeight: '700', fontSize: 13, marginTop: 16, marginBottom: 8 },
+  hTitle: { color: C.cream, fontSize: 12, fontWeight: '600', marginTop: 4, textAlign: 'center', lineHeight: 15 },
+  settingsSectionLabel: { color: C.gold, fontWeight: '700', fontSize: 15, marginTop: 16, marginBottom: 8 },
   // Settings Media Customization (Photo & Cover)
   settingsMediaRow: { flexDirection: 'row', gap: 12, marginTop: 4 },
   settingsMediaCard: {
     flex: 1, backgroundColor: C.surface2, borderRadius: 12, padding: 10,
     borderWidth: 1, borderColor: C.border, alignItems: 'center',
   },
-  settingsMediaTitle: { color: C.cream, fontSize: 11, fontWeight: '700', marginBottom: 8, textAlign: 'center' },
+  settingsMediaTitle: { color: C.cream, fontSize: 13, fontWeight: '700', marginBottom: 8, textAlign: 'center' },
   settingMediaBlock: { alignItems: 'center', width: '100%' },
   settingAvatarCircle: {
-    width: 58, height: 58, borderRadius: 29, backgroundColor: C.surface,
+    width: 60, height: 60, borderRadius: 30, backgroundColor: C.surface,
     borderWidth: 2, borderColor: C.bordeaux, alignItems: 'center', justifyContent: 'center',
     overflow: 'hidden', marginBottom: 8,
   },
   settingAvatarImg: { width: '100%', height: '100%' },
   settingBannerPreview: {
-    width: '100%', height: 58, borderRadius: 8, backgroundColor: C.surface,
+    width: '100%', height: 60, borderRadius: 8, backgroundColor: C.surface,
     borderWidth: 1, borderColor: C.border, overflow: 'hidden',
     alignItems: 'center', justifyContent: 'center', marginBottom: 8,
   },
   settingBannerImg: { width: '100%', height: '100%' },
   settingBannerEmpty: { alignItems: 'center', justifyContent: 'center' },
-  settingBannerEmptyText: { color: C.muted, fontSize: 9, fontWeight: '600', marginTop: 2 },
+  settingBannerEmptyText: { color: C.muted, fontSize: 11.5, fontWeight: '600', marginTop: 2 },
   settingBannerBtnRow: { flexDirection: 'row', alignItems: 'center', gap: 6, width: '100%' },
   settingActionBtn: {
     backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
-    paddingVertical: 7, paddingHorizontal: 6, borderRadius: 8, alignItems: 'center',
+    paddingVertical: 8, paddingHorizontal: 6, borderRadius: 8, alignItems: 'center',
     justifyContent: 'center', width: '100%',
   },
-  settingActionBtnText: { color: C.gold, fontSize: 10, fontWeight: '700' },
+  settingActionBtnText: { color: C.gold, fontSize: 12, fontWeight: '700' },
   settingRemoveBtn: {
     backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
-    width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center',
+    width: 30, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center',
   },
-  settingRemoveBtnText: { color: C.muted, fontSize: 12, fontWeight: '800' },
+  settingRemoveBtnText: { color: C.muted, fontSize: 14, fontWeight: '800' },
   langRow: { flexDirection: 'row', gap: 10 },
   langBtn: {
     flex: 1, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border,
-    paddingVertical: 10, borderRadius: 8, alignItems: 'center',
+    paddingVertical: 11, borderRadius: 8, alignItems: 'center',
   },
   langBtnActive: { borderColor: C.bordeaux, backgroundColor: C.bordeaux },
-  langBtnText: { color: C.muted, fontWeight: '700', fontSize: 12 },
+  langBtnText: { color: C.muted, fontWeight: '700', fontSize: 13.5 },
   langBtnTextActive: { color: C.cream },
+  versionFooter: {
+    marginTop: 40,
+    marginBottom: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  versionText: {
+    color: C.muted,
+    fontSize: 13.5,
+    fontWeight: '600',
+    opacity: 0.65,
+    letterSpacing: 0.8,
+  },
 });
 
 const sliderSt = StyleSheet.create({
@@ -4001,9 +4023,9 @@ const sliderSt = StyleSheet.create({
     fontSize: 22,
   },
   track: {
-    width: 306,
-    height: 48,
-    borderRadius: 24,
+    width: 316,
+    height: 50,
+    borderRadius: 25,
     borderWidth: 1.5,
     flexDirection: 'row',
     alignItems: 'center',
@@ -4015,8 +4037,8 @@ const sliderSt = StyleSheet.create({
     position: 'absolute',
     top: 3,
     left: 3,
-    height: 40,
-    borderRadius: 20,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
@@ -4029,7 +4051,7 @@ const sliderSt = StyleSheet.create({
     elevation: 6,
   },
   pillText: {
-    fontSize: 11,
+    fontSize: 12.5,
     fontWeight: '800',
     textAlign: 'center',
   },
@@ -4041,13 +4063,13 @@ const sliderSt = StyleSheet.create({
     paddingHorizontal: 2,
   },
   slotText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '700',
     textAlign: 'center',
   },
   hintText: {
     color: '#8A6A72',
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
     marginTop: 8,
     textAlign: 'center',
@@ -4066,7 +4088,7 @@ const detailSt = StyleSheet.create({
   },
   scrollContainer: { padding: 22, paddingBottom: 80 },
   backBtn: { alignSelf: 'flex-start', paddingVertical: 8, paddingHorizontal: 4, marginBottom: 12 },
-  backText: { color: C.gold, fontSize: 16, fontWeight: '700' },
+  backText: { color: C.gold, fontSize: 17, fontWeight: '700' },
   posterWrapper: {
     alignSelf: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.6, shadowRadius: 14, elevation: 12,
@@ -4079,7 +4101,7 @@ const detailSt = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: C.border,
   },
   titleCenter: {
-    color: C.cream, fontSize: 24, fontWeight: '800', textAlign: 'center',
+    color: C.cream, fontSize: 26, fontWeight: '800', textAlign: 'center',
     marginTop: 16, paddingHorizontal: 12,
   },
   overviewWrapper: {
@@ -4090,14 +4112,14 @@ const detailSt = StyleSheet.create({
   },
   overviewText: {
     color: C.muted,
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 15,
+    lineHeight: 22,
     textAlign: 'center',
   },
   seeMoreBtn: {
     marginTop: 6,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
+    paddingVertical: 5,
+    paddingHorizontal: 12,
     backgroundColor: C.surface,
     borderWidth: 1,
     borderColor: C.border,
@@ -4105,7 +4127,7 @@ const detailSt = StyleSheet.create({
   },
   seeMoreText: {
     color: C.gold,
-    fontSize: 11,
+    fontSize: 12.5,
     fontWeight: '700',
   },
   buttonRow: {
@@ -4122,7 +4144,7 @@ const detailSt = StyleSheet.create({
   actionBtnActive: {
     backgroundColor: C.bordeaux, borderColor: C.bordeaux,
   },
-  actionBtnText: { color: C.cream, fontWeight: '800', fontSize: 13 },
+  actionBtnText: { color: C.cream, fontWeight: '800', fontSize: 14.5 },
   actionBtnTextActive: { color: C.cream },
   // Movie specific view
   movieSection: { marginTop: 10 },
@@ -4131,7 +4153,7 @@ const detailSt = StyleSheet.create({
     backgroundColor: C.surface, padding: 18, borderRadius: 12,
     borderWidth: 1, borderColor: C.border, marginTop: 10,
   },
-  movieSubText: { color: C.gold, fontSize: 12, marginTop: 4, fontWeight: '600' },
+  movieSubText: { color: C.gold, fontSize: 13.5, marginTop: 4, fontWeight: '600' },
   // Series view
   seasonsSection: { marginTop: 10 },
   sectionHeadingRow: {
@@ -4140,7 +4162,7 @@ const detailSt = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 12,
   },
-  sectionHeading: { color: C.cream, fontSize: 18, fontWeight: '800' },
+  sectionHeading: { color: C.cream, fontSize: 20, fontWeight: '800' },
   bulkSeriesBtn: {
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -4155,7 +4177,7 @@ const detailSt = StyleSheet.create({
   },
   bulkSeriesBtnText: {
     color: C.gold,
-    fontSize: 11,
+    fontSize: 12.5,
     fontWeight: '800',
   },
   bulkSeriesBtnTextActive: {
@@ -4163,7 +4185,7 @@ const detailSt = StyleSheet.create({
   },
   seasonPillsRow: { gap: 8, paddingBottom: 12 },
   seasonPill: {
-    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 18,
+    paddingHorizontal: 15, paddingVertical: 8, borderRadius: 18,
     borderWidth: 1, borderColor: C.border, backgroundColor: C.surface,
   },
   seasonPillActive: {
@@ -4173,7 +4195,7 @@ const detailSt = StyleSheet.create({
     borderColor: C.bordeaux,
     backgroundColor: '#261418',
   },
-  seasonPillText: { color: C.muted, fontSize: 12, fontWeight: '700' },
+  seasonPillText: { color: C.muted, fontSize: 13.5, fontWeight: '700' },
   seasonPillTextActive: { color: C.cream },
   seasonPillTextWatched: { color: C.gold },
   seasonHeaderRow: {
@@ -4191,30 +4213,30 @@ const detailSt = StyleSheet.create({
   },
   seasonTitleText: {
     color: C.cream,
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '800',
   },
   seasonMetaText: {
     color: C.gold,
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '800',
     marginTop: 2,
   },
   seasonMetaRemaining: {
     color: '#E0A868',
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
     marginTop: 2,
   },
   seasonMetaCompleted: {
     color: '#68D391',
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '800',
     marginTop: 2,
   },
   seasonToggleBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 13,
+    paddingVertical: 7,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: C.border,
@@ -4226,7 +4248,7 @@ const detailSt = StyleSheet.create({
   },
   seasonToggleBtnText: {
     color: C.cream,
-    fontSize: 11,
+    fontSize: 12.5,
     fontWeight: '700',
   },
   seasonToggleBtnTextActive: {
@@ -4239,12 +4261,12 @@ const detailSt = StyleSheet.create({
     backgroundColor: C.surface, padding: 14, borderRadius: 10,
     borderWidth: 1, borderColor: C.border,
   },
-  episodeNumberText: { color: C.gold, fontSize: 11, fontWeight: '800', marginBottom: 2 },
-  episodeNameText: { color: C.cream, fontSize: 14, fontWeight: '700' },
-  episodeOverviewText: { color: C.muted, fontSize: 11, lineHeight: 15, marginTop: 4 },
+  episodeNumberText: { color: C.gold, fontSize: 12.5, fontWeight: '800', marginBottom: 2 },
+  episodeNameText: { color: C.cream, fontSize: 16, fontWeight: '700' },
+  episodeOverviewText: { color: C.muted, fontSize: 13, lineHeight: 18, marginTop: 4 },
   // Eye icon - High visibility badge
   eyeCircle: {
-    width: 44, height: 44, borderRadius: 22,
+    width: 46, height: 46, borderRadius: 23,
     backgroundColor: C.surface2, borderWidth: 1.5, borderColor: C.border,
     alignItems: 'center', justifyContent: 'center', marginLeft: 12,
   },
@@ -4267,10 +4289,10 @@ const styles = StyleSheet.create({
   loading: { flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center' },
   loadingText: { color: C.bordeaux, fontSize: 18, fontWeight: '800', letterSpacing: 3 },
   page: { padding: 22, paddingBottom: 110 },
-  wordmark: { color: C.bordeaux, fontWeight: '800', letterSpacing: 3, fontSize: 12, marginTop: 4 },
-  pageTitle: { color: C.cream, fontSize: 30, fontWeight: '800', marginTop: 4 },
-  sectionHeader: { color: C.cream, fontSize: 18, fontWeight: '800' },
-  subtitle: { color: C.muted, fontSize: 13, marginBottom: 10 },
+  wordmark: { color: C.bordeaux, fontWeight: '800', letterSpacing: 3, fontSize: 13, marginTop: 4 },
+  pageTitle: { color: C.cream, fontSize: 32, fontWeight: '800', marginTop: 4 },
+  sectionHeader: { color: C.cream, fontSize: 20, fontWeight: '800' },
+  subtitle: { color: C.muted, fontSize: 14.5, marginBottom: 10 },
   libraryHeader: {
     paddingHorizontal: 22,
     paddingTop: 14,
@@ -4284,7 +4306,7 @@ const styles = StyleSheet.create({
   search: {
     marginHorizontal: 22, marginTop: 8, marginBottom: 8,
     backgroundColor: C.surface, borderRadius: 10, paddingHorizontal: 14,
-    height: 40, color: C.cream, fontSize: 16, borderWidth: 1, borderColor: C.border,
+    height: 44, color: C.cream, fontSize: 16.5, borderWidth: 1, borderColor: C.border,
   },
   searchBarContainer: {
     marginHorizontal: 22,
@@ -4293,7 +4315,7 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface,
     borderRadius: 10,
     paddingHorizontal: 12,
-    height: 42,
+    height: 44,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -4304,48 +4326,52 @@ const styles = StyleSheet.create({
     flex: 1,
     height: '100%',
     color: C.cream,
-    fontSize: 15,
+    fontSize: 16,
   },
   filtersWrapper: { marginBottom: 10, backgroundColor: C.bg, zIndex: 10 },
   filters: { paddingHorizontal: 22, gap: 6 },
-  chip: { borderWidth: 1, borderColor: C.border, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5 },
+  chip: { borderWidth: 1, borderColor: C.border, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 6 },
   chipActive: { backgroundColor: C.bordeaux, borderColor: C.bordeaux },
-  chipText: { color: C.muted, fontSize: 12, fontWeight: '600' },
+  chipText: { color: C.muted, fontSize: 13.5, fontWeight: '600' },
   chipTextActive: { color: C.cream },
   list: { paddingHorizontal: 22, paddingBottom: 100 },
   seriesRow: {
-    flexDirection: 'row', alignItems: 'center', paddingVertical: 11,
+    flexDirection: 'row', alignItems: 'center', paddingVertical: 12,
     borderBottomWidth: 1, borderBottomColor: C.border,
   },
-  poster: { height: 56, width: 39, borderRadius: 5, backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  poster: { height: 60, width: 42, borderRadius: 6, backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
   posterText: { color: C.bordeaux, fontSize: 18, fontWeight: '800' },
   rowBody: { flex: 1, marginLeft: 14 },
-  rowTitle: { color: C.cream, fontSize: 15, fontWeight: '700' },
-  rowMeta: { color: C.muted, fontSize: 11, marginTop: 2 },
-  rowProgress: { color: C.gold, fontSize: 13, fontWeight: '800', marginTop: 3 },
-  rowProgressRemaining: { color: '#E0A868', fontSize: 13, fontWeight: '700', marginTop: 3 },
-  rowProgressCompleted: { color: '#68D391', fontSize: 13, fontWeight: '800', marginTop: 3 },
+  rowTitle: { color: C.cream, fontSize: 17, fontWeight: '700' },
+  rowMeta: { color: C.muted, fontSize: 13, marginTop: 2 },
+  rowProgress: { color: C.gold, fontSize: 14.5, fontWeight: '800', marginTop: 3 },
+  rowProgressRemaining: { color: '#E0A868', fontSize: 14.5, fontWeight: '700', marginTop: 3 },
+  rowProgressCompleted: { color: '#68D391', fontSize: 14.5, fontWeight: '800', marginTop: 3 },
   chevron: { color: C.border, fontSize: 22 },
   tabbar: {
     backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.border,
-    flexDirection: 'row', justifyContent: 'space-around', paddingTop: 5,
-    paddingBottom: (Platform.OS === 'web' ? 'calc(2px + env(safe-area-inset-bottom, 4px))' : 8) as any,
+    flexDirection: 'row', justifyContent: 'space-around', paddingTop: 6,
+    paddingBottom: (Platform.OS === 'web'
+      ? 'max(10px, env(safe-area-inset-bottom, 10px))'
+      : Platform.OS === 'ios'
+      ? 28
+      : 8) as any,
   },
   tab: { alignItems: 'center', minWidth: 60, flex: 1, paddingVertical: 2 },
-  tabIcon: { color: C.muted, fontSize: 20 },
+  tabIcon: { color: C.muted, fontSize: 22 },
   tabIconActive: { color: C.bordeaux, transform: [{ scale: 1.15 }] },
-  tabLabel: { color: C.muted, fontSize: 10, marginTop: 2 },
+  tabLabel: { color: C.muted, fontSize: 11.5, marginTop: 2 },
   tabLabelActive: { color: C.bordeaux, fontWeight: '800' },
-  back: { color: C.gold, fontSize: 16 },
+  back: { color: C.gold, fontSize: 17 },
   primaryButton: { backgroundColor: C.bordeaux, padding: 14, borderRadius: 11, alignItems: 'center', marginTop: 20 },
-  primaryButtonText: { color: C.cream, fontWeight: '800', fontSize: 15 },
+  primaryButtonText: { color: C.cream, fontWeight: '800', fontSize: 16.5 },
   empty: { backgroundColor: C.surface, borderRadius: 12, padding: 18, marginTop: 14 },
-  emptyText: { color: C.muted, lineHeight: 20, textAlign: 'center' },
+  emptyText: { color: C.muted, lineHeight: 22, textAlign: 'center', fontSize: 15.5 },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,.78)', justifyContent: 'flex-end' },
   modal: {
     backgroundColor: C.surface, padding: 22, borderTopLeftRadius: 22,
     borderTopRightRadius: 22, minHeight: 240, borderTopWidth: 1, borderColor: C.border,
   },
-  modalTitle: { color: C.cream, fontSize: 20, fontWeight: '800', marginBottom: 14 },
-  cancel: { color: C.muted, fontWeight: '700' },
+  modalTitle: { color: C.cream, fontSize: 22, fontWeight: '800', marginBottom: 14 },
+  cancel: { color: C.muted, fontWeight: '700', fontSize: 15.5 },
 });
