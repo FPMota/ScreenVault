@@ -42,3 +42,18 @@ Para testar durante o desenvolvimento com Expo Go:
 ## Deploy
 
 O Vercel usa [vercel.json](vercel.json) para instalar as dependências da pasta `mobile`, gerar a versão web e publicar a pasta `mobile/dist`. Um `git push` para o repositório ligado ao Vercel desencadeia um novo deploy.
+
+## Sincronização privada
+
+O ScreenVault usa Supabase para sincronizar a biblioteca entre dispositivos. Antes do primeiro uso:
+
+1. No Supabase, abrir o **SQL Editor** e executar [supabase/schema.sql](supabase/schema.sql).
+2. Em **Authentication → URL Configuration**, adicionar o URL de produção do Vercel à lista de Redirect URLs.
+3. No Vercel, criar estas variáveis de ambiente para **Production** e **Preview**:
+
+   ```text
+   EXPO_PUBLIC_SUPABASE_URL
+   EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+   ```
+
+O ficheiro `mobile/.env` é apenas local e nunca deve ser enviado para o Git. A publishable key é usada pela app; o acesso aos dados continua fechado pelas regras da base de dados, que permitem cada utilizador ler e alterar apenas os seus próprios registos.
