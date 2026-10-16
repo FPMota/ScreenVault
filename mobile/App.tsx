@@ -404,19 +404,28 @@ export default function App() {
     };
   }, []);
 
-  // Load initial local data
+  // App Initialization:
+  // 1. Reads local cache (AsyncStorage)
+  // 2. Checks Supabase Auth session
+  // 3. IF session exists: awaits profile (username, bio, avatar, banner), library, and watchlist
+  //    BEFORE setting ready=true. This guarantees nothing disappears from the profile on app updates!
   useEffect(() => {
-    Promise.all([
-      AsyncStorage.getItem(STORAGE_KEY),
-      AsyncStorage.getItem(LIBRARY_KEY),
-      AsyncStorage.getItem(WATCHLIST_KEY),
-      AsyncStorage.getItem(AVATAR_KEY),
-      AsyncStorage.getItem(BANNER_KEY),
-      AsyncStorage.getItem(LANG_KEY),
-      AsyncStorage.getItem(USERNAME_KEY),
-      AsyncStorage.getItem(BIO_KEY),
-    ])
-      .then(([p, l, w, a, ban, la, un, bi]) => {
+    let isMounted = true;
+
+    async function initialize() {
+      // 1. Read local storage cache
+      try {
+        const [p, l, w, a, ban, la, un, bi] = await Promise.all([
+          AsyncStorage.getItem(STORAGE_KEY),
+          AsyncStorage.getItem(LIBRARY_KEY),
+          AsyncStorage.getItem(WATCHLIST_KEY),
+          AsyncStorage.getItem(AVATAR_KEY),
+          AsyncStorage.getItem(BANNER_KEY),
+          AsyncStorage.getItem(LANG_KEY),
+          AsyncStorage.getItem(USERNAME_KEY),
+          AsyncStorage.getItem(BIO_KEY),
+        ]);
+        if (!isMounted) return;
         if (p) setPersonal(JSON.parse(p));
         if (l) setLibrary(JSON.parse(l));
         if (w) setWatchlist(JSON.parse(w));
@@ -425,23 +434,145 @@ export default function App() {
         if (la === 'en' || la === 'pt') setLang(la);
         if (un) setUsername(un);
         if (bi) setBio(bi);
-      })
-      .catch(() => undefined)
-      .finally(() => setReady(true));
+      } catch {
+        // storage fallback
+      }
+
+      // 2. Check Supabase connection & session
+      if (!supabase) {
+        if (isMounted) setReady(true);
+        return;
+      }
+
+      try {
+        const { data: authData } = await supabase.auth.getSession();
+        if (!isMounted) return;
+        const currentSession = authData?.session ?? null;
+        setSession(currentSession);
+
+        if (!currentSession) {
+          // No user session -> ready to show SignIn
+          setReady(true);
+          return;
+        }
+
+        const uid = currentSession.user.id;
+
+        // 3. User is signed in -> Pre-load Profile, Library, and Watchlist from Supabase
+        await Promise.race([
+          Promise.all([
+            // Fetch profile
+            supabase
+              .from('profiles')
+              .select('username, bio, avatar_url, banner_url')
+              .eq('id', uid)
+              .single()
+              .then(({ data, error }) => {
+                if (!error && data && isMounted) {
+                  if (data.username) {
+                    setUsername(data.username);
+                    AsyncStorage.setItem(USERNAME_KEY, data.username).catch(() => undefined);
+                  }
+                  if (data.bio) {
+                    setBio(data.bio);
+                    AsyncStorage.setItem(BIO_KEY, data.bio).catch(() => undefined);
+                  }
+                  if (data.avatar_url) {
+                    setAvatar(data.avatar_url);
+                    AsyncStorage.setItem(AVATAR_KEY, data.avatar_url).catch(() => undefined);
+                  }
+                  if ((data as any).banner_url) {
+                    setBanner((data as any).banner_url);
+                    AsyncStorage.setItem(BANNER_KEY, (data as any).banner_url).catch(() => undefined);
+                  }
+                }
+              }),
+
+            // Fetch library
+            supabase
+              .from('series_entries')
+              .select('*')
+              .eq('user_id', uid)
+              .order('title')
+              .then(({ data, error }) => {
+                if (!error && data && isMounted) {
+                  const cl: Series[] = data.map((r) => ({
+                    title: r.title,
+                    collection: r.collection as Collection,
+                    watchedEpisodes: r.watched_episodes,
+                    totalEpisodes: r.total_episodes,
+                    mediaType: r.media_type as 'series' | 'movie',
+                    tmdbId: r.tmdb_id ?? undefined,
+                    posterPath: r.poster_path ?? undefined,
+                    lastWatched: r.last_watched ?? undefined,
+                  }));
+                  const cp = Object.fromEntries(
+                    data
+                      .filter((r) => r.rating || r.review || r.last_watched)
+                      .map((r) => [
+                        r.title,
+                        {
+                          rating: r.rating ?? undefined,
+                          review: r.review ?? undefined,
+                          lastWatched: r.last_watched ?? undefined,
+                        },
+                      ]),
+                  );
+                  setLibrary(cl);
+                  setPersonal((cur) => ({ ...cur, ...cp }));
+                  AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(cl)).catch(() => undefined);
+                }
+              }),
+
+            // Fetch watchlist
+            supabase
+              .from('watchlist')
+              .select('*')
+              .eq('user_id', uid)
+              .then(({ data, error }) => {
+                if (!error && data && isMounted) {
+                  const items: TmdbResult[] = data.map((r) => ({
+                    id: Number(r.tmdb_id) || Number(r.id) || 0,
+                    mediaType: (r.media_type as 'series' | 'movie') || 'series',
+                    title: r.title,
+                    posterPath: r.poster_path ?? undefined,
+                    overview: r.overview ?? undefined,
+                  }));
+                  setWatchlist(items);
+                  AsyncStorage.setItem(WATCHLIST_KEY, JSON.stringify(items)).catch(() => undefined);
+                }
+              }),
+          ]),
+          new Promise((resolve) => setTimeout(resolve, 3000)), // 3s network safety timeout
+        ]);
+      } catch {
+        // network / supabase fallback
+      } finally {
+        if (isMounted) {
+          setReady(true);
+        }
+      }
+    }
+
+    initialize();
+
+    const { data: listener } = supabase
+      ? supabase.auth.onAuthStateChange((_e, s) => {
+          setSession(s);
+          if (!s) setReady(true);
+        })
+      : { data: { subscription: { unsubscribe: () => {} } } };
+
+    return () => {
+      isMounted = false;
+      listener.subscription.unsubscribe();
+    };
   }, []);
 
   const changeLanguage = (newLang: Language) => {
     setLang(newLang);
     AsyncStorage.setItem(LANG_KEY, newLang).catch(() => undefined);
   };
-
-  // Supabase Auth listener
-  useEffect(() => {
-    if (!supabase) return;
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: listener } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
-    return () => listener.subscription.unsubscribe();
-  }, []);
 
   // Supabase Cloud Sync
   useEffect(() => {
@@ -927,11 +1058,7 @@ export default function App() {
   const lastWatched = (s: Series) => personal[s.title]?.lastWatched ?? s.lastWatched ?? 0;
 
   if (!ready) {
-    return (
-      <View style={styles.loading}>
-        <Text style={styles.loadingText}>SCREENVAULT</Text>
-      </View>
-    );
+    return <LoadingScreen lang={lang} />;
   }
 
   if (isSupabaseConfigured && !session) {
@@ -1899,6 +2026,15 @@ function Profile({
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [draftUsername, setDraftUsername] = useState(username);
   const [draftBio, setDraftBio] = useState(bio);
+
+  useEffect(() => {
+    setDraftUsername(username);
+  }, [username]);
+
+  useEffect(() => {
+    setDraftBio(bio);
+  }, [bio]);
+
   const [seeAllModal, setSeeAllModal] = useState<{
     visible: boolean;
     title: string;
@@ -3862,6 +3998,114 @@ function BannerPicker({
     </View>
   );
 }
+
+// ─── Loading Screen ───────────────────────────────────────────────────────────
+
+function LoadingScreen({ lang }: { lang: Language }) {
+  const pulseAnim = useRef(new Animated.Value(0.9)).current;
+  const opacityAnim = useRef(new Animated.Value(0.55)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.parallel([
+          Animated.timing(pulseAnim, {
+            toValue: 1.05,
+            duration: 850,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(opacityAnim, {
+            toValue: 1,
+            duration: 850,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.parallel([
+          Animated.timing(pulseAnim, {
+            toValue: 0.9,
+            duration: 850,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(opacityAnim, {
+            toValue: 0.55,
+            duration: 850,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+        ]),
+      ]),
+    ).start();
+  }, [pulseAnim, opacityAnim]);
+
+  return (
+    <View style={loadingStyles.container}>
+      <Animated.View
+        style={[
+          loadingStyles.logoWrapper,
+          {
+            transform: [{ scale: pulseAnim }],
+            opacity: opacityAnim,
+          },
+        ]}
+      >
+        <Image
+          source={require('./assets/icon.png')}
+          style={loadingStyles.logo}
+          resizeMode="cover"
+        />
+      </Animated.View>
+
+      <Text style={loadingStyles.wordmark}>SCREENVAULT</Text>
+
+      <ActivityIndicator size="small" color={C.gold} style={{ marginTop: 22 }} />
+
+      <Text style={loadingStyles.subtext}>
+        {lang === 'pt' ? 'A carregar o teu cofre...' : 'Opening your vault...'}
+      </Text>
+    </View>
+  );
+}
+
+const loadingStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: C.bg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  logoWrapper: {
+    shadowColor: C.bordeaux,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.6,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  logo: {
+    width: 84,
+    height: 84,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: C.bordeaux,
+  },
+  wordmark: {
+    color: C.cream,
+    fontWeight: '800',
+    fontSize: 16,
+    letterSpacing: 4,
+    marginTop: 18,
+  },
+  subtext: {
+    color: C.muted,
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 12,
+    letterSpacing: 0.5,
+  },
+});
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
