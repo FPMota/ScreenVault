@@ -32,6 +32,7 @@ import {
   type TmdbSeasonInfo,
 } from './lib/tmdb';
 
+
 // ─── Types & Localization ─────────────────────────────────────────────────────
 
 type Language = 'en' | 'pt';
@@ -66,6 +67,7 @@ const STORAGE_KEY = '@screenvault/personal-data-v1';
 const LIBRARY_KEY = '@screenvault/library-v1';
 const WATCHLIST_KEY = '@screenvault/watchlist-v1';
 const AVATAR_KEY = '@screenvault/avatar-v1';
+const BANNER_KEY = '@screenvault/banner-v1';
 const LANG_KEY = '@screenvault/lang-v1';
 const USERNAME_KEY = '@screenvault/username-v1';
 const BIO_KEY = '@screenvault/bio-v1';
@@ -156,6 +158,16 @@ const i18n = {
     featureCatalog: 'Movies, Series & Watchlist',
     alreadyHaveAccount: 'Already have an account? Sign in',
     needAccount: "Don't have an account? Create one",
+    addBanner: 'Add Cover',
+    changeBanner: 'Change Cover',
+    removeBanner: 'Remove Cover',
+    showMore: 'Show more',
+    showLess: 'Show less',
+    profileCustomization: 'Profile Customization',
+    profilePhoto: 'Profile Photo',
+    coverImage: 'Cover Image',
+    addPhoto: 'Add photo',
+    noCover: 'No cover',
   },
   pt: {
     home: 'Início',
@@ -238,6 +250,16 @@ const i18n = {
     featureCatalog: 'Filmes, Séries e Watchlist',
     alreadyHaveAccount: 'Já tens conta? Iniciar sessão',
     needAccount: 'Ainda não tens conta? Criar conta',
+    addBanner: 'Adicionar Capa',
+    changeBanner: 'Mudar Capa',
+    removeBanner: 'Remover Capa',
+    showMore: 'Ver mais',
+    showLess: 'Ver menos',
+    profileCustomization: 'Personalização do Perfil',
+    profilePhoto: 'Foto de Perfil',
+    coverImage: 'Imagem de Capa',
+    addPhoto: 'Adicionar foto',
+    noCover: 'Sem capa',
   },
 };
 
@@ -266,6 +288,7 @@ export default function App() {
   const [library, setLibrary] = useState<Series[]>([]);
   const [watchlist, setWatchlist] = useState<TmdbResult[]>([]);
   const [avatar, setAvatar] = useState<string | null>(null);
+  const [banner, setBanner] = useState<string | null>(null);
   const [username, setUsername] = useState<string>('');
   const [bio, setBio] = useState<string>('');
   const [session, setSession] = useState<Session | null>(null);
@@ -384,15 +407,17 @@ export default function App() {
       AsyncStorage.getItem(LIBRARY_KEY),
       AsyncStorage.getItem(WATCHLIST_KEY),
       AsyncStorage.getItem(AVATAR_KEY),
+      AsyncStorage.getItem(BANNER_KEY),
       AsyncStorage.getItem(LANG_KEY),
       AsyncStorage.getItem(USERNAME_KEY),
       AsyncStorage.getItem(BIO_KEY),
     ])
-      .then(([p, l, w, a, la, un, bi]) => {
+      .then(([p, l, w, a, ban, la, un, bi]) => {
         if (p) setPersonal(JSON.parse(p));
         if (l) setLibrary(JSON.parse(l));
         if (w) setWatchlist(JSON.parse(w));
         if (a) setAvatar(a);
+        if (ban) setBanner(ban);
         if (la === 'en' || la === 'pt') setLang(la);
         if (un) setUsername(un);
         if (bi) setBio(bi);
@@ -447,17 +472,21 @@ export default function App() {
       AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(cl)).catch(() => undefined);
     });
 
-    // Check user_metadata for avatar
+    // Check user_metadata for avatar & banner
     if (session.user.user_metadata?.avatar_url) {
       setAvatar(session.user.user_metadata.avatar_url);
       AsyncStorage.setItem(AVATAR_KEY, session.user.user_metadata.avatar_url).catch(() => undefined);
+    }
+    if (session.user.user_metadata?.banner_url) {
+      setBanner(session.user.user_metadata.banner_url);
+      AsyncStorage.setItem(BANNER_KEY, session.user.user_metadata.banner_url).catch(() => undefined);
     }
 
     supabase.storage.from('avatars').createSignedUrl(`${session.user.id}/avatar`, 3600)
       .then(({ data }) => { if (data?.signedUrl) setAvatar(data.signedUrl); })
       .catch(() => undefined);
 
-    supabase.from('profiles').select('username, bio, avatar_url').eq('id', session.user.id).single()
+    supabase.from('profiles').select('username, bio, avatar_url, banner_url').eq('id', session.user.id).single()
       .then(({ data, error }) => {
         if (!error && data) {
           if (data.username) {
@@ -471,6 +500,10 @@ export default function App() {
           if (data.avatar_url) {
             setAvatar(data.avatar_url);
             AsyncStorage.setItem(AVATAR_KEY, data.avatar_url).catch(() => undefined);
+          }
+          if ((data as any).banner_url) {
+            setBanner((data as any).banner_url);
+            AsyncStorage.setItem(BANNER_KEY, (data as any).banner_url).catch(() => undefined);
           }
         }
       }, () => undefined);
@@ -491,6 +524,14 @@ export default function App() {
           if (newRow?.avatar_url) {
             setAvatar(newRow.avatar_url);
             AsyncStorage.setItem(AVATAR_KEY, newRow.avatar_url).catch(() => undefined);
+          }
+          if (newRow?.banner_url !== undefined) {
+            setBanner(newRow.banner_url || null);
+            if (newRow.banner_url) {
+              AsyncStorage.setItem(BANNER_KEY, newRow.banner_url).catch(() => undefined);
+            } else {
+              AsyncStorage.removeItem(BANNER_KEY).catch(() => undefined);
+            }
           }
           if (newRow?.username) {
             setUsername(newRow.username);
@@ -741,6 +782,55 @@ export default function App() {
     } catch { /* keep local & database copy */ }
   };
 
+  const uploadBanner = async (uri: string) => {
+    if (banner && uri === banner) {
+      alert(
+        lang === 'pt'
+          ? 'Esta fotografia já é a tua imagem de fundo atual. Escolhe uma fotografia diferente.'
+          : 'This is already your current background photo. Please choose a different photo.',
+      );
+      return;
+    }
+
+    setBanner(uri);
+    AsyncStorage.setItem(BANNER_KEY, uri).catch(() => undefined);
+    if (!supabase || !session) return;
+
+    try {
+      await supabase.auth.updateUser({
+        data: { banner_url: uri },
+      });
+    } catch { /* ignore */ }
+
+    try {
+      await supabase.from('profiles').upsert({
+        id: session.user.id,
+        banner_url: uri,
+        updated_at: new Date().toISOString(),
+      });
+    } catch { /* ignore */ }
+  };
+
+  const removeBanner = async () => {
+    setBanner(null);
+    AsyncStorage.removeItem(BANNER_KEY).catch(() => undefined);
+    if (!supabase || !session) return;
+
+    try {
+      await supabase.auth.updateUser({
+        data: { banner_url: null },
+      });
+    } catch { /* ignore */ }
+
+    try {
+      await supabase.from('profiles').upsert({
+        id: session.user.id,
+        banner_url: null,
+        updated_at: new Date().toISOString(),
+      });
+    } catch { /* ignore */ }
+  };
+
   const handleSaveProfile = async (newUsername: string, newBio: string) => {
     setUsername(newUsername);
     setBio(newBio);
@@ -817,10 +907,13 @@ export default function App() {
           lastWatched={lastWatched}
           open={setSelected}
           avatar={avatar}
+          banner={banner}
           username={username}
           bio={bio}
           email={session?.user.email}
           onUploadAvatar={uploadAvatar}
+          onUploadBanner={uploadBanner}
+          onRemoveBanner={removeBanner}
           onSaveProfile={handleSaveProfile}
           settingsOpen={settingsOpen}
           onOpenSettings={() => setSettingsOpen(true)}
@@ -1129,7 +1222,7 @@ function Home({
 
         {/* Bordeaux Outline Search icon button */}
         <Pressable onPress={onOpenSearch} style={homeSt.searchOutlineBtn}>
-          <Text style={homeSt.searchOutlineIcon}>🔍</Text>
+          <SearchIcon size={14} color={C.bordeaux} />
           <Text style={homeSt.searchOutlineText}>{t.search}</Text>
         </Pressable>
       </View>
@@ -1267,18 +1360,26 @@ function Library({
       <View style={styles.libraryHeader}>
         <Text style={styles.pageTitle}>{t.library}</Text>
         <Pressable onPress={onOpenSearch} style={homeSt.searchOutlineBtn}>
-          <Text style={homeSt.searchOutlineIcon}>🔍</Text>
+          <SearchIcon size={14} color={C.bordeaux} />
           <Text style={homeSt.searchOutlineText}>{t.search}</Text>
         </Pressable>
       </View>
 
-      <TextInput
-        value={query}
-        onChangeText={setQuery}
-        placeholder={t.searchPlaceholder}
-        placeholderTextColor="#7e6060"
-        style={styles.search}
-      />
+      <View style={styles.searchBarContainer}>
+        <SearchIcon size={16} color={C.bordeaux} />
+        <TextInput
+          value={query}
+          onChangeText={setQuery}
+          placeholder={t.searchPlaceholder}
+          placeholderTextColor="#7e6060"
+          style={styles.searchBarInput}
+        />
+        {query ? (
+          <Pressable onPress={() => setQuery('')} hitSlop={8} style={{ padding: 4 }}>
+            <Text style={{ color: C.muted, fontSize: 13, fontWeight: '700' }}>✕</Text>
+          </Pressable>
+        ) : null}
+      </View>
 
       <View style={styles.filtersWrapper}>
         <ScrollView
@@ -1309,6 +1410,7 @@ function Library({
             press={() => open(item)}
             collectionLabel={filterLabels[item.collection]}
             t={t}
+            lang={lang}
           />
         )}
       />
@@ -1344,7 +1446,7 @@ function Watchlist({
           </Pressable>
         </View>
         <Pressable onPress={onOpenSearch} style={homeSt.searchOutlineBtn}>
-          <Text style={homeSt.searchOutlineIcon}>🔍</Text>
+          <SearchIcon size={14} color={C.bordeaux} />
           <Text style={homeSt.searchOutlineText}>{t.search}</Text>
         </Pressable>
       </View>
@@ -1425,10 +1527,13 @@ function Profile({
   lastWatched,
   open,
   avatar,
+  banner,
   username,
   bio,
   email,
   onUploadAvatar,
+  onUploadBanner,
+  onRemoveBanner,
   onSaveProfile,
   settingsOpen,
   onOpenSettings,
@@ -1444,10 +1549,13 @@ function Profile({
   lastWatched: (s: Series) => number;
   open: (s: Series | TmdbResult) => void;
   avatar: string | null;
+  banner: string | null;
   username: string;
   bio: string;
   email?: string;
   onUploadAvatar: (uri: string) => void;
+  onUploadBanner: (uri: string) => void;
+  onRemoveBanner: () => void;
   onSaveProfile: (username: string, bio: string) => Promise<void> | void;
   settingsOpen: boolean;
   onOpenSettings: () => void;
@@ -1497,38 +1605,84 @@ function Profile({
 
   return (
     <View style={styles.flex}>
-      {/* Fixed Sticky Header at Top */}
-      <View style={profSt.headerRow}>
-        <Text style={styles.pageTitle}>{t.profile}</Text>
-        <Pressable onPress={onOpenSettings} style={profSt.gearButton}>
-          <Text style={profSt.gearIcon}>⚙</Text>
-        </Pressable>
-      </View>
-
       <ScrollView
         contentContainerStyle={profSt.scrollContent}
         showsVerticalScrollIndicator={false}
         overScrollMode="always"
         bounces
       >
-        <AvatarPicker avatar={avatar} onPick={onUploadAvatar} label={t.changePhoto} lang={lang} />
+        {/* Banner Area (wrapping Header, Avatar, Username, Bio, Edit Profile & Fading out towards bottom) */}
+        <View style={profSt.bannerContainer}>
+          {banner ? (
+            <View style={StyleSheet.absoluteFill} pointerEvents="none">
+              <Image source={{ uri: banner }} style={profSt.bannerImage} resizeMode="cover" />
+              {/* Fade gradient overlay before entering dashBar */}
+              <View
+                style={[
+                  profSt.bannerGradient,
+                  Platform.OS === 'web' && ({
+                    backgroundImage:
+                      'linear-gradient(to bottom, rgba(16, 12, 13, 0.25) 0%, rgba(16, 12, 13, 0.45) 45%, rgba(16, 12, 13, 0.8) 75%, rgba(16, 12, 13, 0.98) 95%, #100C0D 100%)',
+                  } as any),
+                ]}
+              />
+              <svg
+                width="100%"
+                height="100%"
+                preserveAspectRatio="none"
+                viewBox="0 0 100 100"
+                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
+              >
+                <defs>
+                  <linearGradient id="bannerBottomFade" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#100C0D" stopOpacity="0.25" />
+                    <stop offset="45%" stopColor="#100C0D" stopOpacity="0.45" />
+                    <stop offset="75%" stopColor="#100C0D" stopOpacity="0.85" />
+                    <stop offset="95%" stopColor="#100C0D" stopOpacity="0.98" />
+                    <stop offset="100%" stopColor="#100C0D" stopOpacity="1" />
+                  </linearGradient>
+                </defs>
+                <rect width="100" height="100" fill="url(#bannerBottomFade)" />
+              </svg>
+            </View>
+          ) : null}
 
-        {/* User Info (Username, Bio, Edit Profile button) */}
-        <View style={profSt.userInfoContainer}>
-          <Text style={profSt.usernameText}>
-            {username ? `@${username}` : (email ? `@${email.split('@')[0]}` : '@user')}
-          </Text>
-          {bio ? <Text style={profSt.bioText}>{bio}</Text> : null}
-          <Pressable
-            onPress={() => {
-              setDraftUsername(username);
-              setDraftBio(bio);
-              setEditModalOpen(true);
-            }}
-            style={profSt.editProfileBtn}
-          >
-            <Text style={profSt.editProfileBtnText}>✎ {t.editProfile}</Text>
-          </Pressable>
+          {/* Header Row over the cover banner */}
+          <View style={profSt.headerRowOverBanner}>
+            <Text style={profSt.headerTitle}>{t.profile}</Text>
+            <Pressable onPress={onOpenSettings} style={profSt.gearButton} hitSlop={10}>
+              <Text style={profSt.gearIcon}>⚙</Text>
+            </Pressable>
+          </View>
+
+          {/* Clean Avatar Display (photo change controls are inside the gear ⚙) */}
+          <View style={profSt.avatarDisplayWrapper}>
+            {avatar ? (
+              <Image source={{ uri: avatar }} style={profSt.avatar} />
+            ) : (
+              <View style={profSt.avatarPlaceholder}>
+                <Text style={profSt.avatarIcon}>👤</Text>
+              </View>
+            )}
+          </View>
+
+          {/* User Info (Username, Bio, Edit Profile button) */}
+          <View style={profSt.userInfoContainer}>
+            <Text style={profSt.usernameText}>
+              {username ? `@${username}` : (email ? `@${email.split('@')[0]}` : '@user')}
+            </Text>
+            {bio ? <Text style={profSt.bioText}>{bio}</Text> : null}
+            <Pressable
+              onPress={() => {
+                setDraftUsername(username);
+                setDraftBio(bio);
+                setEditModalOpen(true);
+              }}
+              style={profSt.editProfileBtn}
+            >
+              <Text style={profSt.editProfileBtnText}>✎ {t.editProfile}</Text>
+            </Pressable>
+          </View>
         </View>
 
         {/* Ultra-compact Dashboard line: Séries Vistas, Séries por Acabar, Watchlist */}
@@ -1761,17 +1915,6 @@ function Profile({
           )}
         </View>
 
-        {/* Footer Stat Card at bottom of Profile */}
-        <View style={profSt.footerStatCard}>
-          <Text style={profSt.footerStatIcon}>🎬</Text>
-          <Text style={profSt.footerStatNumber}>{seriesWatched}</Text>
-          <Text style={profSt.footerStatLabel}>
-            {lang === 'pt'
-              ? (seriesWatched === 1 ? 'série já foi vista no total' : 'séries já foram vistas no total')
-              : (seriesWatched === 1 ? 'series watched in total' : 'series watched in total')}
-          </Text>
-        </View>
-
       {/* See All Full Modal */}
       <Modal visible={seeAllModal.visible} animationType="slide">
         <SafeAreaView style={styles.safe}>
@@ -1813,55 +1956,83 @@ function Profile({
         </SafeAreaView>
       </Modal>
 
-      {/* Settings Modal (Language & Sign out) */}
+      {/* Settings Modal (Language, Photo/Cover Customization & Sign out) */}
       <Modal visible={settingsOpen} animationType="slide" transparent>
         <View style={styles.modalBackdrop}>
-          <View style={styles.modal}>
-            <Text style={styles.modalTitle}>{t.settings}</Text>
+          <View style={[styles.modal, { maxHeight: '88%' }]}>
+            <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
+              <Text style={styles.modalTitle}>{t.settings}</Text>
 
-            {/* Language Selector */}
-            <Text style={profSt.settingsSectionLabel}>{t.language}</Text>
-            <View style={profSt.langRow}>
-              <Pressable
-                onPress={() => onChangeLang('pt')}
-                style={[profSt.langBtn, lang === 'pt' && profSt.langBtnActive]}
-              >
-                <Text style={[profSt.langBtnText, lang === 'pt' && profSt.langBtnTextActive]}>
-                  🇵🇹 Português (PT)
-                </Text>
-              </Pressable>
+              {/* Photo & Cover Customization */}
+              <Text style={profSt.settingsSectionLabel}>{t.profileCustomization}</Text>
+              <View style={profSt.settingsMediaRow}>
+                {/* Photo / Avatar Section */}
+                <View style={profSt.settingsMediaCard}>
+                  <Text style={profSt.settingsMediaTitle}>👤 {t.profilePhoto}</Text>
+                  <AvatarPicker
+                    avatar={avatar}
+                    onPick={onUploadAvatar}
+                    label={avatar ? t.changePhoto : t.addPhoto}
+                    lang={lang}
+                  />
+                </View>
 
-              <Pressable
-                onPress={() => onChangeLang('en')}
-                style={[profSt.langBtn, lang === 'en' && profSt.langBtnActive]}
-              >
-                <Text style={[profSt.langBtnText, lang === 'en' && profSt.langBtnTextActive]}>
-                  🇬🇧 English
-                </Text>
-              </Pressable>
-            </View>
+                {/* Cover Banner Section */}
+                <View style={profSt.settingsMediaCard}>
+                  <Text style={profSt.settingsMediaTitle}>🖼 {t.coverImage}</Text>
+                  <BannerPicker
+                    banner={banner}
+                    onPick={onUploadBanner}
+                    onRemove={onRemoveBanner}
+                    lang={lang}
+                  />
+                </View>
+              </View>
 
-            {/* Account Info & Sign Out */}
-            {email ? (
-              <View style={{ marginTop: 20 }}>
-                <Text style={profSt.accountEmail}>{email}</Text>
+              {/* Language Selector */}
+              <Text style={profSt.settingsSectionLabel}>{t.language}</Text>
+              <View style={profSt.langRow}>
                 <Pressable
-                  onPress={() => {
-                    onCloseSettings();
-                    onSignOut();
-                  }}
-                  style={profSt.signOutButton}
+                  onPress={() => onChangeLang('pt')}
+                  style={[profSt.langBtn, lang === 'pt' && profSt.langBtnActive]}
                 >
-                  <Text style={profSt.signOutText}>{t.signOut}</Text>
+                  <Text style={[profSt.langBtnText, lang === 'pt' && profSt.langBtnTextActive]}>
+                    🇵🇹 Português (PT)
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={() => onChangeLang('en')}
+                  style={[profSt.langBtn, lang === 'en' && profSt.langBtnActive]}
+                >
+                  <Text style={[profSt.langBtnText, lang === 'en' && profSt.langBtnTextActive]}>
+                    🇬🇧 English
+                  </Text>
                 </Pressable>
               </View>
-            ) : (
-              <Text style={profSt.accountEmail}>{t.notSignedIn}</Text>
-            )}
 
-            <Pressable onPress={onCloseSettings} style={{ marginTop: 20, alignSelf: 'center' }}>
-              <Text style={styles.cancel}>{t.close}</Text>
-            </Pressable>
+              {/* Account Info & Sign Out */}
+              {email ? (
+                <View style={{ marginTop: 20 }}>
+                  <Text style={profSt.accountEmail}>{email}</Text>
+                  <Pressable
+                    onPress={() => {
+                      onCloseSettings();
+                      onSignOut();
+                    }}
+                    style={profSt.signOutButton}
+                  >
+                    <Text style={profSt.signOutText}>{t.signOut}</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <Text style={profSt.accountEmail}>{t.notSignedIn}</Text>
+              )}
+
+              <Pressable onPress={onCloseSettings} style={{ marginTop: 22, alignSelf: 'center', paddingVertical: 6 }}>
+                <Text style={styles.cancel}>{t.close}</Text>
+              </Pressable>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -1943,14 +2114,20 @@ function DestinationSlider({
   lang: Language;
 }) {
   const t = i18n[lang];
-  const [trackWidth, setTrackWidth] = useState(250);
+  const [trackWidth, setTrackWidth] = useState(306);
 
-  const knobSize = 40;
   const padding = 3;
-  const travel = Math.max(40, trackWidth - knobSize - padding * 2);
+  const innerWidth = Math.max(90, trackWidth - padding * 2);
+  const slotWidth = innerWidth / 3;
 
-  const isWatchlist = state === 'watchlist';
-  const targetX = isWatchlist ? travel : 0;
+  // 3 Target positions for the sliding pill: 0 (library), slotWidth (none), slotWidth * 2 (watchlist)
+  const getTargetX = (st: 'library' | 'watchlist' | 'none') => {
+    if (st === 'library') return 0;
+    if (st === 'watchlist') return slotWidth * 2;
+    return slotWidth;
+  };
+
+  const targetX = getTargetX(state);
   const translateX = useRef(new Animated.Value(targetX)).current;
   const isDragging = useRef(false);
   const dragStart = useRef(targetX);
@@ -1985,41 +2162,59 @@ function DestinationSlider({
         onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > 3,
         onPanResponderGrant: () => {
           isDragging.current = true;
-          dragStart.current = state === 'watchlist' ? travel : 0;
+          dragStart.current = getTargetX(state);
         },
         onPanResponderMove: (_e, gestureState) => {
-          const nextPos = Math.max(0, Math.min(travel, dragStart.current + gestureState.dx));
+          const nextPos = Math.max(0, Math.min(slotWidth * 2, dragStart.current + gestureState.dx));
           translateX.setValue(nextPos);
         },
         onPanResponderRelease: (_e, gestureState) => {
           isDragging.current = false;
-          const currentPos = Math.max(0, Math.min(travel, dragStart.current + gestureState.dx));
-          const halfway = travel * 0.5;
+          const currentPos = Math.max(0, Math.min(slotWidth * 2, dragStart.current + gestureState.dx));
 
-          // Pure binary snap: never catches or stops in the middle!
-          // If release doesn't pass halfway, falls back where it came from ("cai onde tava").
-          let nextDest: 'library' | 'watchlist' = 'library';
+          // Midpoints between slots:
+          const m1 = slotWidth * 0.5;
+          const m2 = slotWidth * 1.5;
 
-          if (state === 'watchlist') {
-            if (currentPos > halfway) {
-              // Did not reach halfway to the left -> falls back to watchlist
+          let nextDest: 'library' | 'watchlist' | 'none' = state;
+
+          if (state === 'library') {
+            if (currentPos < m1) {
+              // Did not reach halfway to middle -> falls back to library ("cai onde tava")
+              nextDest = 'library';
+            } else if (currentPos < m2) {
+              // Crossed halfway into middle -> snaps to none (Remover)
+              nextDest = 'none';
+            } else {
+              // Crossed all the way to right -> snaps to watchlist
+              nextDest = 'watchlist';
+            }
+          } else if (state === 'none') {
+            if (currentPos < m1) {
+              // Crossed halfway to left -> snaps to library
+              nextDest = 'library';
+            } else if (currentPos > m2) {
+              // Crossed halfway to right -> snaps to watchlist
               nextDest = 'watchlist';
             } else {
-              // Crossed halfway -> snaps to library
-              nextDest = 'library';
+              // Did not reach either side halfway -> falls back to center ("cai onde tava")
+              nextDest = 'none';
             }
           } else {
-            // Started at library or none
-            if (currentPos < halfway) {
-              // Did not reach halfway to the right -> falls back to library
-              nextDest = 'library';
-            } else {
-              // Crossed halfway -> snaps to watchlist
+            // state === 'watchlist'
+            if (currentPos > m2) {
+              // Did not reach halfway to middle -> falls back to watchlist ("cai onde tava")
               nextDest = 'watchlist';
+            } else if (currentPos > m1) {
+              // Crossed halfway into middle -> snaps to none (Remover)
+              nextDest = 'none';
+            } else {
+              // Crossed all the way to left -> snaps to library
+              nextDest = 'library';
             }
           }
 
-          const nextTarget = nextDest === 'watchlist' ? travel : 0;
+          const nextTarget = getTargetX(nextDest);
           Animated.spring(translateX, {
             toValue: nextTarget,
             friction: 7,
@@ -2028,34 +2223,63 @@ function DestinationSlider({
           }).start();
 
           if (nextDest !== state) {
-            triggerConfetti();
+            if (nextDest === 'library' || nextDest === 'watchlist') {
+              triggerConfetti();
+            }
+            onChange(nextDest);
           }
-          onChange(nextDest);
         },
       }),
-    [state, travel, onChange],
+    [state, slotWidth, onChange],
   );
 
-  const handleSidePress = (dest: 'library' | 'watchlist') => {
+  const handleSlotPress = (dest: 'library' | 'watchlist' | 'none') => {
     if (state !== dest) {
-      triggerConfetti();
+      if (dest === 'library' || dest === 'watchlist') {
+        triggerConfetti();
+      }
+      onChange(dest);
     }
-    onChange(dest);
   };
 
+  // Watchlist: barra fica amarela (#D49B20 / #F5C518)
+  // Biblioteca: barra fica vermelha bordeux (#8B1A2E / #A6223B)
+  // None: neutro (#1E1417 / #3D262C)
   const trackBgColor =
     state === 'library'
       ? '#8B1A2E'
       : state === 'watchlist'
-      ? '#9E1C33'
+      ? '#D49B20'
       : '#1E1417';
 
   const trackBorderColor =
     state === 'library'
       ? '#A6223B'
       : state === 'watchlist'
-      ? '#D93856'
+      ? '#F5C518'
       : '#3D262C';
+
+  // Text inside the sliding active ball/pill
+  const pillLabel =
+    state === 'library'
+      ? `📚 ${t.library}`
+      : state === 'watchlist'
+      ? `⭐ ${t.watchlist}`
+      : `✕ ${lang === 'pt' ? 'Remover' : 'Remove'}`;
+
+  // Text color inside the white ball/pill
+  const pillTextColor =
+    state === 'library'
+      ? '#8B1A2E'
+      : state === 'watchlist'
+      ? '#7A5200'
+      : '#4A2028';
+
+  // Color for inactive slot labels on the track
+  const inactiveTextColor =
+    state === 'watchlist'
+      ? 'rgba(40, 26, 5, 0.75)'
+      : 'rgba(255, 230, 235, 0.65)';
 
   return (
     <View style={sliderSt.container}>
@@ -2118,30 +2342,32 @@ function DestinationSlider({
           if (w > 0) setTrackWidth(w);
         }}
       >
-        {/* Animated Pure White Circular iOS Knob */}
+        {/* Animated Sliding Pill with the word written inside */}
         <Animated.View
           style={[
-            sliderSt.knob,
+            sliderSt.slidingPill,
             {
+              width: slotWidth,
               transform: [{ translateX }],
             },
           ]}
           {...panResponder.panHandlers}
         >
-          <Text style={sliderSt.knobIcon}>
-            {state === 'watchlist' ? '⭐' : '🎬'}
+          <Text style={[sliderSt.pillText, { color: pillTextColor }]} numberOfLines={1}>
+            {pillLabel}
           </Text>
         </Animated.View>
 
-        {/* 2 Clickable Sides: Left (Biblioteca), Right (Watchlist) */}
+        {/* 3 Clickable Track Slots underneath */}
         <Pressable
-          onPress={() => handleSidePress('library')}
-          style={[sliderSt.sideSlot, { paddingLeft: 14 }]}
+          onPress={() => handleSlotPress('library')}
+          style={[sliderSt.slot, { width: slotWidth }]}
         >
           <Text
             style={[
-              sliderSt.slotLabel,
-              state === 'library' ? sliderSt.slotLabelActive : sliderSt.slotLabelInactive,
+              sliderSt.slotText,
+              { color: inactiveTextColor },
+              state === 'library' && { opacity: 0 },
             ]}
             numberOfLines={1}
           >
@@ -2150,13 +2376,30 @@ function DestinationSlider({
         </Pressable>
 
         <Pressable
-          onPress={() => handleSidePress('watchlist')}
-          style={[sliderSt.sideSlot, { paddingRight: 14, alignItems: 'flex-end' }]}
+          onPress={() => handleSlotPress('none')}
+          style={[sliderSt.slot, { width: slotWidth }]}
         >
           <Text
             style={[
-              sliderSt.slotLabel,
-              state === 'watchlist' ? sliderSt.slotLabelActive : sliderSt.slotLabelInactive,
+              sliderSt.slotText,
+              { color: inactiveTextColor },
+              state === 'none' && { opacity: 0 },
+            ]}
+            numberOfLines={1}
+          >
+            ✕ {lang === 'pt' ? 'Remover' : 'Remove'}
+          </Text>
+        </Pressable>
+
+        <Pressable
+          onPress={() => handleSlotPress('watchlist')}
+          style={[sliderSt.slot, { width: slotWidth }]}
+        >
+          <Text
+            style={[
+              sliderSt.slotText,
+              { color: inactiveTextColor },
+              state === 'watchlist' && { opacity: 0 },
             ]}
             numberOfLines={1}
           >
@@ -2165,16 +2408,11 @@ function DestinationSlider({
         </Pressable>
       </View>
 
-      {/* Remove option when item is active in either Library or Watchlist */}
-      {state !== 'none' ? (
-        <Pressable onPress={() => onChange('none')} style={sliderSt.removeBtn}>
-          <Text style={sliderSt.removeBtnText}>
-            ✕ {state === 'library' ? t.removeFromLibrary : t.removeFromWatchlist}
-          </Text>
-        </Pressable>
-      ) : (
-        <Text style={sliderSt.hintText}>{t.dragHint}</Text>
-      )}
+      <Text style={sliderSt.hintText}>
+        {lang === 'pt'
+          ? '← Biblioteca • Centro para remover • Watchlist →'
+          : '← Library • Center to remove • Watchlist →'}
+      </Text>
     </View>
   );
 }
@@ -2242,32 +2480,11 @@ function SeriesDetailModal({
   const [selectedSeason, setSelectedSeason] = useState<number | 'all'>('all');
   const [seasonEpisodes, setSeasonEpisodes] = useState<Record<number, TmdbEpisodeInfo[]>>({});
   const [loadingEpisodes, setLoadingEpisodes] = useState(false);
+  const [overviewExpanded, setOverviewExpanded] = useState(false);
 
-  // Soft and smooth popcorn animation
-  const popcornScale = useRef(new Animated.Value(0)).current;
-  const popcornOpacity = useRef(new Animated.Value(0)).current;
-
-  const triggerPopcornAnimation = () => {
-    popcornScale.setValue(0.25);
-    popcornOpacity.setValue(1);
-    Animated.parallel([
-      Animated.timing(popcornScale, {
-        toValue: 1.25,
-        duration: 320,
-        easing: Easing.out(Easing.back(1.5)),
-        useNativeDriver: true,
-      }),
-      Animated.sequence([
-        Animated.delay(220),
-        Animated.timing(popcornOpacity, {
-          toValue: 0,
-          duration: 350,
-          easing: Easing.out(Easing.quad),
-          useNativeDriver: true,
-        }),
-      ]),
-    ]).start();
-  };
+  useEffect(() => {
+    setOverviewExpanded(false);
+  }, [tmdbId]);
 
   // Fetch full details (seasons, backdrop, overview)
   useEffect(() => {
@@ -2343,7 +2560,6 @@ function SeriesDetailModal({
 
   // Toggle all episodes in a season
   const toggleSeasonWatched = (sNum: number) => {
-    triggerPopcornAnimation();
     const sInfo = details.seasons.find((s) => s.seasonNumber === sNum);
     const eps = seasonEpisodes[sNum];
     const count = eps?.length ?? sInfo?.episodeCount ?? 0;
@@ -2395,7 +2611,6 @@ function SeriesDetailModal({
 
   // Toggle all episodes across all seasons
   const toggleEntireSeriesWatched = () => {
-    triggerPopcornAnimation();
     const nextList = new Set(watchedEpSet);
     const alreadyWatched = isSeriesFullyWatched;
 
@@ -2452,7 +2667,6 @@ function SeriesDetailModal({
     if (newDest === destinationState) return;
 
     if (newDest === 'library') {
-      triggerPopcornAnimation();
       if (inWatchlist) {
         onRemoveFromWatchlist({
           id: tmdbId ?? 0,
@@ -2469,7 +2683,6 @@ function SeriesDetailModal({
         totalEpisodes: details.totalEpisodes,
       });
     } else if (newDest === 'watchlist') {
-      triggerPopcornAnimation();
       if (inLibrary) {
         onRemoveFromLibrary();
       }
@@ -2521,20 +2734,6 @@ function SeriesDetailModal({
           <Text style={detailSt.backText}>‹ {t.close}</Text>
         </Pressable>
 
-        {/* Floating Popcorn Animation overlay */}
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            detailSt.popcornContainer,
-            {
-              transform: [{ scale: popcornScale }],
-              opacity: popcornOpacity,
-            },
-          ]}
-        >
-          <Text style={detailSt.popcornEmoji}>🍿✨</Text>
-        </Animated.View>
-
         {/* Center Vertical Poster */}
         <View style={detailSt.posterWrapper}>
           {currentPoster ? (
@@ -2553,10 +2752,32 @@ function SeriesDetailModal({
         {/* Centered Title */}
         <Text style={detailSt.titleCenter}>{item.title}</Text>
 
-        {/* Synopsis / Overview */}
-        <Text style={detailSt.overviewText}>
-          {details.overview || t.noOverview}
-        </Text>
+        {/* Synopsis / Overview (collapsible if long) */}
+        {(() => {
+          const rawOverview = details.overview || item.overview || '';
+          const isLongOverview = rawOverview.length > 140;
+          return (
+            <View style={detailSt.overviewWrapper}>
+              <Text
+                style={detailSt.overviewText}
+                numberOfLines={!isLongOverview || overviewExpanded ? undefined : 3}
+              >
+                {rawOverview || t.noOverview}
+              </Text>
+              {isLongOverview ? (
+                <Pressable
+                  onPress={() => setOverviewExpanded((prev) => !prev)}
+                  style={detailSt.seeMoreBtn}
+                  hitSlop={8}
+                >
+                  <Text style={detailSt.seeMoreText}>
+                    {overviewExpanded ? `▴ ${t.showLess}` : `▾ ${t.showMore}`}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+          );
+        })()}
 
         {/* Interactive Drag & Tap Destination Slider: Left (Library) vs Right (Watchlist) vs Center (None) */}
         <DestinationSlider
@@ -2650,9 +2871,27 @@ function SeriesDetailModal({
                     <Text style={detailSt.seasonTitleText}>
                       {details.seasons.find((s) => s.seasonNumber === selectedSeason)?.name || `${t.season} ${selectedSeason}`}
                     </Text>
-                    <Text style={detailSt.seasonMetaText}>
-                      {seasonWatchedCount(selectedSeason)} / {details.seasons.find((s) => s.seasonNumber === selectedSeason)?.episodeCount ?? seasonEpisodes[selectedSeason]?.length ?? 0} {t.watchedCount}
-                    </Text>
+                    {(() => {
+                      const sWatched = seasonWatchedCount(selectedSeason);
+                      const sTotal = details.seasons.find((s) => s.seasonNumber === selectedSeason)?.episodeCount ?? seasonEpisodes[selectedSeason]?.length ?? 0;
+                      const sLeft = Math.max(0, sTotal - sWatched);
+                      return (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                          <Text style={detailSt.seasonMetaText}>
+                            {sWatched} / {sTotal} {t.watchedCount}
+                          </Text>
+                          {sLeft > 0 ? (
+                            <Text style={detailSt.seasonMetaRemaining}>
+                              • {lang === 'pt' ? `faltam ${sLeft}` : `${sLeft} left`}
+                            </Text>
+                          ) : (
+                            <Text style={detailSt.seasonMetaCompleted}>
+                              • {lang === 'pt' ? 'Concluída ✓' : 'Done ✓'}
+                            </Text>
+                          )}
+                        </View>
+                      );
+                    })()}
                   </View>
 
                   <Pressable
@@ -2783,21 +3022,29 @@ function SearchCatalogModal({
         {isTmdbConfigured ? (
           <>
             <View style={catSt.searchRow}>
-              <TextInput
-                value={query}
-                onChangeText={setQuery}
-                onSubmitEditing={search}
-                placeholder={t.searchCatalogPrompt}
-                placeholderTextColor="#7e6060"
-                style={catSt.searchInput}
-                autoFocus
-              />
+              <View style={catSt.searchInputContainer}>
+                <SearchIcon size={16} color={C.bordeaux} />
+                <TextInput
+                  value={query}
+                  onChangeText={setQuery}
+                  onSubmitEditing={search}
+                  placeholder={t.searchCatalogPrompt}
+                  placeholderTextColor="#7e6060"
+                  style={catSt.searchInputWithIcon}
+                  autoFocus
+                />
+                {query ? (
+                  <Pressable onPress={() => setQuery('')} hitSlop={8} style={{ padding: 4 }}>
+                    <Text style={{ color: C.muted, fontSize: 13, fontWeight: '700' }}>✕</Text>
+                  </Pressable>
+                ) : null}
+              </View>
               <Pressable onPress={search} style={[homeSt.searchOutlineBtn, { marginBottom: 0, height: 46, justifyContent: 'center' }]}>
                 {loading ? (
                   <ActivityIndicator color={C.cream} size="small" />
                 ) : (
                   <>
-                    <Text style={homeSt.searchOutlineIcon}>🔍</Text>
+                    <SearchIcon size={15} color={C.bordeaux} />
                     <Text style={homeSt.searchOutlineText}>{t.search}</Text>
                   </>
                 )}
@@ -2892,6 +3139,28 @@ function SearchCatalogModal({
 
 // ─── Shared Components ────────────────────────────────────────────────────────
 
+function SearchIcon({ size = 15, color = C.bordeaux }: { size?: number; color?: string }) {
+  if (Platform.OS === 'web') {
+    return (
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke={color}
+        strokeWidth="2.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        style={{ display: 'inline-block', verticalAlign: 'middle', flexShrink: 0 }}
+      >
+        <circle cx="11" cy="11" r="7" />
+        <line x1="21" y1="21" x2="16.2" y2="16.2" />
+      </svg>
+    );
+  }
+  return <Text style={{ color, fontSize: size, fontWeight: '900' }}>⌕</Text>;
+}
+
 function PosterThumb({ posterPath, title, size }: { posterPath?: string; title: string; size: 'sm' | 'md' }) {
   const w = size === 'md' ? 52 : 39;
   const h = size === 'md' ? 76 : 56;
@@ -2912,24 +3181,43 @@ function SeriesRow({
   press,
   collectionLabel,
   t,
+  lang,
 }: {
   series: Series;
   watched: number;
   press: () => void;
   collectionLabel: string;
   t: (typeof i18n)['en'];
+  lang: Language;
 }) {
+  const remaining = Math.max(0, series.totalEpisodes - watched);
+
   return (
     <Pressable style={styles.seriesRow} onPress={press}>
       <PosterThumb posterPath={series.posterPath} title={series.title} size="sm" />
       <View style={styles.rowBody}>
         <Text style={styles.rowTitle}>{series.title}</Text>
         <Text style={styles.rowMeta}>{collectionLabel}</Text>
-        <Text style={styles.rowProgress}>
-          {series.totalEpisodes > 0
-            ? `${watched} / ${series.totalEpisodes} ${t.episodes}`
-            : `${watched} ${t.episodesWatched}`}
-        </Text>
+        {series.totalEpisodes > 0 ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
+            <Text style={styles.rowProgress}>
+              {watched} / {series.totalEpisodes} {t.watchedCount}
+            </Text>
+            {remaining > 0 ? (
+              <Text style={styles.rowProgressRemaining}>
+                • {lang === 'pt' ? `faltam ${remaining}` : `${remaining} left`}
+              </Text>
+            ) : (
+              <Text style={styles.rowProgressCompleted}>
+                • {lang === 'pt' ? 'Concluída ✓' : 'Done ✓'}
+              </Text>
+            )}
+          </View>
+        ) : (
+          <Text style={styles.rowProgress}>
+            {watched} {t.episodesWatched}
+          </Text>
+        )}
       </View>
       <Text style={styles.chevron}>›</Text>
     </Pressable>
@@ -3092,20 +3380,154 @@ function AvatarPicker({
   };
 
   return (
-    <Pressable onPress={pick} style={profSt.avatarContainer} disabled={loading}>
-      {loading ? (
-        <View style={profSt.avatarPlaceholder}>
+    <View style={profSt.settingMediaBlock}>
+      <Pressable onPress={pick} style={profSt.settingAvatarCircle} disabled={loading}>
+        {loading ? (
           <ActivityIndicator color={C.bordeaux} size="small" />
-        </View>
-      ) : avatar ? (
-        <Image source={{ uri: avatar }} style={profSt.avatar} />
-      ) : (
-        <View style={profSt.avatarPlaceholder}><Text style={profSt.avatarIcon}>👤</Text></View>
-      )}
-      <Text style={profSt.avatarLabel}>
-        {loading ? (lang === 'pt' ? 'A guardar...' : 'Saving...') : label}
-      </Text>
-    </Pressable>
+        ) : avatar ? (
+          <Image source={{ uri: avatar }} style={profSt.settingAvatarImg} />
+        ) : (
+          <Text style={{ fontSize: 26 }}>👤</Text>
+        )}
+      </Pressable>
+      <Pressable onPress={pick} style={profSt.settingActionBtn} disabled={loading}>
+        <Text style={profSt.settingActionBtnText} numberOfLines={1}>
+          {loading ? (lang === 'pt' ? 'A guardar...' : 'Saving...') : `📷 ${label}`}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function BannerPicker({
+  banner,
+  onPick,
+  onRemove,
+  lang,
+}: {
+  banner: string | null;
+  onPick: (uri: string) => void;
+  onRemove: () => void;
+  lang: Language;
+}) {
+  const [loading, setLoading] = useState(false);
+  const t = i18n[lang];
+
+  const processFile = (file: File) => {
+    setLoading(true);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const rawDataUrl = reader.result as string;
+      const img = new (window as any).Image();
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          const targetW = 640;
+          const targetH = Math.max(260, Math.round((img.height / img.width) * targetW));
+          canvas.width = targetW;
+          canvas.height = targetH;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, targetW, targetH);
+            const compressed = canvas.toDataURL('image/jpeg', 0.82);
+            if (banner && (compressed === banner || rawDataUrl === banner)) {
+              alert(
+                lang === 'pt'
+                  ? 'Esta fotografia já é a tua imagem de fundo atual. Escolhe uma fotografia diferente.'
+                  : 'This is already your current background photo. Please choose a different photo.',
+              );
+              setLoading(false);
+              return;
+            }
+            onPick(compressed);
+          } else {
+            onPick(rawDataUrl);
+          }
+        } catch {
+          onPick(rawDataUrl);
+        } finally {
+          setLoading(false);
+        }
+      };
+      img.onerror = () => {
+        onPick(rawDataUrl);
+        setLoading(false);
+      };
+      img.src = rawDataUrl;
+    };
+    reader.onerror = () => setLoading(false);
+    reader.readAsDataURL(file);
+  };
+
+  const pick = async () => {
+    if (Platform.OS === 'web') {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.onchange = (e) => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (!file) return;
+        processFile(file);
+      };
+      input.click();
+    } else {
+      try {
+        const IP = await import('expo-image-picker' as any);
+        const perm = await IP.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) return;
+        const res = await IP.launchImageLibraryAsync({
+          mediaTypes: IP.MediaTypeOptions?.Images ?? 'images',
+          allowsEditing: true,
+          aspect: [16, 9],
+          quality: 0.75,
+          base64: true,
+        });
+        if (!res.canceled && res.assets?.[0]) {
+          const asset = res.assets[0];
+          const newUri = asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : asset.uri;
+          if (banner && newUri === banner) {
+            alert(
+              lang === 'pt'
+                ? 'Esta fotografia já é a tua imagem de fundo atual. Escolhe uma fotografia diferente.'
+                : 'This is already your current background photo. Please choose a different photo.',
+            );
+            return;
+          }
+          onPick(newUri);
+        }
+      } catch { /* not installed */ }
+    }
+  };
+
+  return (
+    <View style={profSt.settingMediaBlock}>
+      <Pressable onPress={pick} style={profSt.settingBannerPreview} disabled={loading}>
+        {loading ? (
+          <ActivityIndicator color={C.bordeaux} size="small" />
+        ) : banner ? (
+          <Image source={{ uri: banner }} style={profSt.settingBannerImg} resizeMode="cover" />
+        ) : (
+          <View style={profSt.settingBannerEmpty}>
+            <Text style={{ fontSize: 22 }}>🖼</Text>
+            <Text style={profSt.settingBannerEmptyText}>{t.noCover}</Text>
+          </View>
+        )}
+      </Pressable>
+      <View style={profSt.settingBannerBtnRow}>
+        <Pressable onPress={pick} style={[profSt.settingActionBtn, { flex: 1 }]} disabled={loading}>
+          <Text style={profSt.settingActionBtnText} numberOfLines={1}>
+            {loading
+              ? (lang === 'pt' ? 'A guardar...' : 'Saving...')
+              : (banner ? `📷 ${t.changeBanner}` : `📷 ${t.addBanner}`)}
+          </Text>
+        </Pressable>
+        {banner ? (
+          <Pressable onPress={onRemove} style={profSt.settingRemoveBtn} hitSlop={6}>
+            <Text style={profSt.settingRemoveBtnText}>✕</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    </View>
   );
 }
 
@@ -3287,10 +3709,11 @@ const homeSt = StyleSheet.create({
   compactTitle: { color: C.cream, fontSize: 11, fontWeight: '600', marginTop: 5, textAlign: 'center', lineHeight: 14 },
   epBadge: {
     position: 'absolute', bottom: 4, right: 4,
-    backgroundColor: 'rgba(16,12,13,0.85)', borderRadius: 5,
-    paddingHorizontal: 4, paddingVertical: 2,
+    backgroundColor: 'rgba(16,12,13,0.92)', borderRadius: 6,
+    paddingHorizontal: 7, paddingVertical: 3,
+    borderWidth: 1, borderColor: '#5C2D37',
   },
-  epBadgeText: { color: C.gold, fontSize: 9, fontWeight: '700' },
+  epBadgeText: { color: C.gold, fontSize: 12, fontWeight: '900', letterSpacing: 0.5 },
   emptySectionCard: {
     backgroundColor: C.surface,
     borderRadius: 10,
@@ -3346,6 +3769,14 @@ const catSt = StyleSheet.create({
     color: C.cream, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
     fontSize: 16,
   },
+  searchInputContainer: {
+    flex: 1, height: 46, borderRadius: 10, paddingHorizontal: 12,
+    backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+  },
+  searchInputWithIcon: {
+    flex: 1, height: '100%', color: C.cream, fontSize: 16,
+  },
   searchButton: {
     backgroundColor: C.bordeaux, borderRadius: 10, paddingHorizontal: 13,
     justifyContent: 'center', minWidth: 70, alignItems: 'center',
@@ -3369,36 +3800,94 @@ const catSt = StyleSheet.create({
 });
 
 const profSt = StyleSheet.create({
-  headerRow: {
+  headerRowOverBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    width: '100%',
     paddingHorizontal: 22,
     paddingTop: 14,
-    paddingBottom: 8,
-    backgroundColor: C.bg,
+    paddingBottom: 10,
     zIndex: 10,
+  },
+  headerTitle: {
+    color: C.cream,
+    fontSize: 28,
+    fontWeight: '800',
+    fontFamily: 'serif',
+    textShadowColor: 'rgba(0, 0, 0, 0.85)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
   },
   scrollContent: {
     paddingHorizontal: 22,
     paddingBottom: 110,
-    paddingTop: 6,
+    paddingTop: 0,
   },
-  gearButton: { padding: 8 },
-  gearIcon: { fontSize: 22, color: C.muted },
-  avatarContainer: { alignItems: 'center', marginBottom: 10 },
-  avatar: { width: 80, height: 80, borderRadius: 40, borderWidth: 2, borderColor: C.bordeaux },
+  gearButton: {
+    padding: 7,
+    backgroundColor: 'rgba(16, 12, 13, 0.55)',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+  },
+  gearIcon: {
+    fontSize: 20,
+    color: C.cream,
+    textShadowColor: 'rgba(0, 0, 0, 0.85)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
+  },
+  bannerContainer: {
+    marginHorizontal: -22,
+    marginTop: 0,
+    paddingHorizontal: 22,
+    paddingTop: 0,
+    paddingBottom: 18,
+    position: 'relative',
+    overflow: 'hidden',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  bannerImage: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
+  },
+  bannerGradient: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  avatarDisplayWrapper: {
+    alignItems: 'center',
+    marginTop: 4,
+    marginBottom: 10,
+    zIndex: 5,
+  },
+  avatar: { width: 84, height: 84, borderRadius: 42, borderWidth: 2.5, borderColor: C.bordeaux },
   avatarPlaceholder: {
-    width: 80, height: 80, borderRadius: 40, backgroundColor: C.surface2,
+    width: 84, height: 84, borderRadius: 42, backgroundColor: C.surface2,
     alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: C.border,
   },
-  avatarIcon: { fontSize: 34 },
-  avatarLabel: { color: C.gold, fontSize: 12, marginTop: 7, fontWeight: '600' },
-  userInfoContainer: { alignItems: 'center', marginBottom: 16, paddingHorizontal: 20 },
-  usernameText: { color: C.cream, fontSize: 18, fontWeight: '800', marginBottom: 4 },
-  bioText: { color: C.muted, fontSize: 13, textAlign: 'center', lineHeight: 18, marginBottom: 8 },
+  avatarIcon: { fontSize: 36 },
+  userInfoContainer: { alignItems: 'center', marginBottom: 14, paddingHorizontal: 20 },
+  usernameText: {
+    color: C.cream, fontSize: 18, fontWeight: '800', marginBottom: 4,
+    textShadowColor: 'rgba(0, 0, 0, 0.75)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4,
+  },
+  bioText: {
+    color: C.cream, fontSize: 13, textAlign: 'center', lineHeight: 18, marginBottom: 8,
+    opacity: 0.9, textShadowColor: 'rgba(0, 0, 0, 0.75)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4,
+  },
   editProfileBtn: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface,
+    flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(30, 21, 24, 0.85)',
     borderWidth: 1, borderColor: C.border, paddingHorizontal: 12, paddingVertical: 6,
     borderRadius: 16, marginTop: 4,
   },
@@ -3443,37 +3932,41 @@ const profSt = StyleSheet.create({
   },
   hPosterImg: { width: '100%', height: '100%' },
   hTitle: { color: C.cream, fontSize: 10, fontWeight: '600', marginTop: 4, textAlign: 'center', lineHeight: 13 },
-  footerStatCard: {
-    marginTop: 26,
-    marginBottom: 16,
-    backgroundColor: C.surface,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: C.border,
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  footerStatIcon: {
-    fontSize: 26,
-    marginBottom: 4,
-  },
-  footerStatNumber: {
-    color: C.bordeauxLight,
-    fontSize: 32,
-    fontWeight: '800',
-    letterSpacing: 1,
-  },
-  footerStatLabel: {
-    color: C.muted,
-    fontSize: 12,
-    fontWeight: '700',
-    marginTop: 2,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
   settingsSectionLabel: { color: C.gold, fontWeight: '700', fontSize: 13, marginTop: 16, marginBottom: 8 },
+  // Settings Media Customization (Photo & Cover)
+  settingsMediaRow: { flexDirection: 'row', gap: 12, marginTop: 4 },
+  settingsMediaCard: {
+    flex: 1, backgroundColor: C.surface2, borderRadius: 12, padding: 10,
+    borderWidth: 1, borderColor: C.border, alignItems: 'center',
+  },
+  settingsMediaTitle: { color: C.cream, fontSize: 11, fontWeight: '700', marginBottom: 8, textAlign: 'center' },
+  settingMediaBlock: { alignItems: 'center', width: '100%' },
+  settingAvatarCircle: {
+    width: 58, height: 58, borderRadius: 29, backgroundColor: C.surface,
+    borderWidth: 2, borderColor: C.bordeaux, alignItems: 'center', justifyContent: 'center',
+    overflow: 'hidden', marginBottom: 8,
+  },
+  settingAvatarImg: { width: '100%', height: '100%' },
+  settingBannerPreview: {
+    width: '100%', height: 58, borderRadius: 8, backgroundColor: C.surface,
+    borderWidth: 1, borderColor: C.border, overflow: 'hidden',
+    alignItems: 'center', justifyContent: 'center', marginBottom: 8,
+  },
+  settingBannerImg: { width: '100%', height: '100%' },
+  settingBannerEmpty: { alignItems: 'center', justifyContent: 'center' },
+  settingBannerEmptyText: { color: C.muted, fontSize: 9, fontWeight: '600', marginTop: 2 },
+  settingBannerBtnRow: { flexDirection: 'row', alignItems: 'center', gap: 6, width: '100%' },
+  settingActionBtn: {
+    backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
+    paddingVertical: 7, paddingHorizontal: 6, borderRadius: 8, alignItems: 'center',
+    justifyContent: 'center', width: '100%',
+  },
+  settingActionBtnText: { color: C.gold, fontSize: 10, fontWeight: '700' },
+  settingRemoveBtn: {
+    backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
+    width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center',
+  },
+  settingRemoveBtnText: { color: C.muted, fontSize: 12, fontWeight: '800' },
   langRow: { flexDirection: 'row', gap: 10 },
   langBtn: {
     flex: 1, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border,
@@ -3508,63 +4001,48 @@ const sliderSt = StyleSheet.create({
     fontSize: 22,
   },
   track: {
-    width: 250,
+    width: 306,
     height: 48,
     borderRadius: 24,
     borderWidth: 1.5,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     position: 'relative',
     overflow: 'hidden',
     padding: 3,
   },
-  knob: {
+  slidingPill: {
     position: 'absolute',
     top: 3,
     left: 3,
-    width: 40,
     height: 40,
     borderRadius: 20,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 10,
+    paddingHorizontal: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.35,
     shadowRadius: 4,
     elevation: 6,
   },
-  knobIcon: {
-    fontSize: 18,
+  pillText: {
+    fontSize: 11,
+    fontWeight: '800',
+    textAlign: 'center',
   },
-  sideSlot: {
-    flex: 1,
+  slot: {
     height: '100%',
+    alignItems: 'center',
     justifyContent: 'center',
     zIndex: 5,
+    paddingHorizontal: 2,
   },
-  slotLabel: {
-    fontSize: 12,
+  slotText: {
+    fontSize: 11,
     fontWeight: '700',
-  },
-  slotLabelActive: {
-    color: '#FFFFFF',
-    fontWeight: '800',
-  },
-  slotLabelInactive: {
-    color: 'rgba(255, 230, 235, 0.75)',
-  },
-  removeBtn: {
-    marginTop: 10,
-    paddingVertical: 5,
-    paddingHorizontal: 12,
-  },
-  removeBtnText: {
-    color: '#C48A96',
-    fontSize: 12,
-    fontWeight: '600',
     textAlign: 'center',
   },
   hintText: {
@@ -3589,10 +4067,6 @@ const detailSt = StyleSheet.create({
   scrollContainer: { padding: 22, paddingBottom: 80 },
   backBtn: { alignSelf: 'flex-start', paddingVertical: 8, paddingHorizontal: 4, marginBottom: 12 },
   backText: { color: C.gold, fontSize: 16, fontWeight: '700' },
-  popcornContainer: {
-    position: 'absolute', top: 180, alignSelf: 'center', zIndex: 100,
-  },
-  popcornEmoji: { fontSize: 60 },
   posterWrapper: {
     alignSelf: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.6, shadowRadius: 14, elevation: 12,
@@ -3608,9 +4082,31 @@ const detailSt = StyleSheet.create({
     color: C.cream, fontSize: 24, fontWeight: '800', textAlign: 'center',
     marginTop: 16, paddingHorizontal: 12,
   },
+  overviewWrapper: {
+    marginTop: 10,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    width: '100%',
+  },
   overviewText: {
-    color: C.muted, fontSize: 13, lineHeight: 19, textAlign: 'center',
-    marginTop: 10, paddingHorizontal: 14,
+    color: C.muted,
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: 'center',
+  },
+  seeMoreBtn: {
+    marginTop: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 12,
+  },
+  seeMoreText: {
+    color: C.gold,
+    fontSize: 11,
+    fontWeight: '700',
   },
   buttonRow: {
     flexDirection: 'row', gap: 12, justifyContent: 'center',
@@ -3695,12 +4191,25 @@ const detailSt = StyleSheet.create({
   },
   seasonTitleText: {
     color: C.cream,
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '800',
   },
   seasonMetaText: {
-    color: C.muted,
-    fontSize: 11,
+    color: C.gold,
+    fontSize: 13,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  seasonMetaRemaining: {
+    color: '#E0A868',
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  seasonMetaCompleted: {
+    color: '#68D391',
+    fontSize: 13,
+    fontWeight: '800',
     marginTop: 2,
   },
   seasonToggleBtn: {
@@ -3777,6 +4286,26 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface, borderRadius: 10, paddingHorizontal: 14,
     height: 40, color: C.cream, fontSize: 16, borderWidth: 1, borderColor: C.border,
   },
+  searchBarContainer: {
+    marginHorizontal: 22,
+    marginTop: 8,
+    marginBottom: 8,
+    backgroundColor: C.surface,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    height: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  searchBarInput: {
+    flex: 1,
+    height: '100%',
+    color: C.cream,
+    fontSize: 15,
+  },
   filtersWrapper: { marginBottom: 10, backgroundColor: C.bg, zIndex: 10 },
   filters: { paddingHorizontal: 22, gap: 6 },
   chip: { borderWidth: 1, borderColor: C.border, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5 },
@@ -3793,7 +4322,9 @@ const styles = StyleSheet.create({
   rowBody: { flex: 1, marginLeft: 14 },
   rowTitle: { color: C.cream, fontSize: 15, fontWeight: '700' },
   rowMeta: { color: C.muted, fontSize: 11, marginTop: 2 },
-  rowProgress: { color: C.gold, fontSize: 11, marginTop: 3 },
+  rowProgress: { color: C.gold, fontSize: 13, fontWeight: '800', marginTop: 3 },
+  rowProgressRemaining: { color: '#E0A868', fontSize: 13, fontWeight: '700', marginTop: 3 },
+  rowProgressCompleted: { color: '#68D391', fontSize: 13, fontWeight: '800', marginTop: 3 },
   chevron: { color: C.border, fontSize: 22 },
   tabbar: {
     backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.border,
