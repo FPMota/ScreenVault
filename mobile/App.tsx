@@ -657,7 +657,7 @@ export default function App() {
   );
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <View style={styles.safe}>
       <StatusBar style="light" />
       {selected ? (
         <SeriesDetailModal
@@ -701,7 +701,7 @@ export default function App() {
           />
         </>
       )}
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -2448,7 +2448,7 @@ const authSt = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 14,
     marginBottom: 10,
-    fontSize: 15,
+    fontSize: 16,
     borderWidth: 1,
     borderColor: C.border,
   },
@@ -2533,6 +2533,7 @@ const catSt = StyleSheet.create({
   searchInput: {
     flex: 1, height: 46, borderRadius: 10, paddingHorizontal: 13,
     color: C.cream, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
+    fontSize: 16,
   },
   searchButton: {
     backgroundColor: C.bordeaux, borderRadius: 10, paddingHorizontal: 13,
@@ -2594,7 +2595,7 @@ const profSt = StyleSheet.create({
   inputLabel: { color: C.gold, fontSize: 12, fontWeight: '700', marginBottom: 6 },
   textInput: {
     backgroundColor: C.surface2, color: C.cream, height: 44, borderRadius: 10,
-    paddingHorizontal: 12, fontSize: 14, borderWidth: 1, borderColor: C.border,
+    paddingHorizontal: 12, fontSize: 16, borderWidth: 1, borderColor: C.border,
   },
   bioInput: { height: 75, paddingTop: 10, textAlignVertical: 'top' },
   accountEmail: { color: C.muted, fontSize: 14, textAlign: 'center' },
@@ -2739,7 +2740,11 @@ const detailSt = StyleSheet.create({
 });
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: C.bg },
+  safe: {
+    flex: 1,
+    backgroundColor: C.bg,
+    paddingTop: (Platform.OS === 'web' ? 'env(safe-area-inset-top, 0px)' : Platform.OS === 'ios' ? 44 : 0) as any,
+  },
   content: { flex: 1 },
   flex: { flex: 1 },
   loading: { flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center' },
@@ -2762,7 +2767,7 @@ const styles = StyleSheet.create({
   search: {
     marginHorizontal: 22, marginTop: 8, marginBottom: 8,
     backgroundColor: C.surface, borderRadius: 10, paddingHorizontal: 14,
-    height: 40, color: C.cream, fontSize: 15, borderWidth: 1, borderColor: C.border,
+    height: 40, color: C.cream, fontSize: 16, borderWidth: 1, borderColor: C.border,
   },
   filtersWrapper: { marginBottom: 10, backgroundColor: C.bg, zIndex: 10 },
   filters: { paddingHorizontal: 22, gap: 6 },
@@ -2784,7 +2789,8 @@ const styles = StyleSheet.create({
   chevron: { color: C.border, fontSize: 22 },
   tabbar: {
     backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.border,
-    flexDirection: 'row', justifyContent: 'space-around', paddingTop: 10, paddingBottom: 22,
+    flexDirection: 'row', justifyContent: 'space-around', paddingTop: 10,
+    paddingBottom: (Platform.OS === 'web' ? 'max(20px, calc(10px + env(safe-area-inset-bottom, 0px)))' : 24) as any,
   },
   tab: { alignItems: 'center', minWidth: 60, flex: 1 },
   tabIcon: { color: C.muted, fontSize: 20 },

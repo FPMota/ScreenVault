@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#100C0D" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -17,20 +17,29 @@
       html,
       body {
         height: 100%;
+        height: 100dvh;
+        min-height: 100dvh;
         background-color: #100C0D;
         margin: 0;
         padding: 0;
-      }
-      /* These styles disable body scrolling if you are using <ScrollView> */
-      body {
         overflow: hidden;
+        overscroll-behavior: none;
+        -webkit-text-size-adjust: 100%;
       }
       /* These styles make the root element full-height */
       #root {
         display: flex;
         height: 100%;
+        height: 100dvh;
         flex: 1;
         background-color: #100C0D;
+        overflow: hidden;
+      }
+      /* Prevent iOS Safari auto-zoom on input focus */
+      input,
+      textarea,
+      select {
+        font-size: 16px !important;
       }
     </style>
   </head>
