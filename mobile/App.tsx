@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Animated,
   Dimensions,
+  Easing,
   FlatList,
   Image,
   Modal,
@@ -116,6 +117,8 @@ const i18n = {
     inWatchlist: 'In Watchlist',
     removeFromLibrary: 'Remove from Library',
     removeFromWatchlist: 'Remove from Watchlist',
+    dragHint: 'Slide left for Library • right for Watchlist',
+    neutralNone: 'None',
     whereToAdd: 'Where to add?',
     chooseDestination: 'Choose where you want to save this title.',
     viewAllSeries: 'All',
@@ -191,6 +194,8 @@ const i18n = {
     inWatchlist: 'Na Watchlist',
     removeFromLibrary: 'Remover da Biblioteca',
     removeFromWatchlist: 'Remover da Watchlist',
+    dragHint: 'Arrasta para a esquerda (Biblioteca) ou direita (Watchlist)',
+    neutralNone: 'Nenhum',
     whereToAdd: 'Onde queres adicionar?',
     chooseDestination: 'Escolhe o destino para este título.',
     viewAllSeries: 'Tudo',
@@ -260,21 +265,33 @@ export default function App() {
 
   // Tab switch horizontal animation
   const slideAnim = useRef(new Animated.Value(0)).current;
+  const tabOpacity = useRef(new Animated.Value(1)).current;
   const tabIndexRef = useRef(0);
 
   const goToTab = (next: Tab) => {
     const nextIndex = TABS.indexOf(next);
+    if (nextIndex === tabIndexRef.current) return;
     const direction = nextIndex > tabIndexRef.current ? 1 : -1;
-    const startX = direction * SCREEN_W * 0.16;
-    slideAnim.setValue(startX);
     tabIndexRef.current = nextIndex;
+
+    slideAnim.setValue(direction * 32);
+    tabOpacity.setValue(0.72);
     setTab(next);
-    Animated.spring(slideAnim, {
-      toValue: 0,
-      useNativeDriver: true,
-      tension: 65,
-      friction: 11,
-    }).start();
+
+    Animated.parallel([
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 260,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(tabOpacity, {
+        toValue: 1,
+        duration: 220,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+    ]).start();
   };
 
   const panResponder = useMemo(
@@ -282,24 +299,36 @@ export default function App() {
       PanResponder.create({
         onMoveShouldSetPanResponder: (_evt, gestureState) => {
           return (
-            Math.abs(gestureState.dx) > 30 &&
-            Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 2.5
+            Math.abs(gestureState.dx) > 20 &&
+            Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.8
           );
         },
+        onPanResponderMove: (_evt, gestureState) => {
+          slideAnim.setValue(gestureState.dx * 0.35);
+        },
         onPanResponderRelease: (_evt, gestureState) => {
-          if (gestureState.dx < -50) {
+          if (gestureState.dx < -45) {
             // Swiped left -> next tab
             const curIdx = tabIndexRef.current;
             if (curIdx < TABS.length - 1) {
               goToTab(TABS[curIdx + 1]);
+              return;
             }
-          } else if (gestureState.dx > 50) {
+          } else if (gestureState.dx > 45) {
             // Swiped right -> previous tab
             const curIdx = tabIndexRef.current;
             if (curIdx > 0) {
               goToTab(TABS[curIdx - 1]);
+              return;
             }
           }
+          // Return smoothly to center
+          Animated.timing(slideAnim, {
+            toValue: 0,
+            duration: 220,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }).start();
         },
       }),
     [],
@@ -475,12 +504,16 @@ export default function App() {
     removeFromWatchlist(item);
   };
 
-  const removeFromLibrary = (seriesTitle: string) => {
+  const removeFromLibrary = (seriesTitle: string, tmdbId?: number) => {
     setLibrary((cur) => {
-      const target = cur.find((s) => s.title === seriesTitle);
-      const next = cur.filter((s) => s.title !== seriesTitle);
+      const target = cur.find((s) =>
+        (tmdbId && s.tmdbId === tmdbId) ||
+        (s.title && s.title.trim().toLowerCase() === seriesTitle.trim().toLowerCase())
+      );
+      if (!target) return cur;
+      const next = cur.filter((s) => s !== target);
       AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(next)).catch(() => undefined);
-      if (supabase && session && target) {
+      if (supabase && session) {
         supabase.from('series_entries').delete()
           .match({ user_id: session.user.id, title: target.title, media_type: target.mediaType ?? 'series' })
           .then(() => undefined);
@@ -491,7 +524,7 @@ export default function App() {
 
   const addToWatchlist = (item: TmdbResult) => {
     // If it's already in library, remove from library
-    removeFromLibrary(item.title);
+    removeFromLibrary(item.title, item.id);
 
     setWatchlist((cur) => {
       if (cur.some((w) => w.id === item.id && w.mediaType === item.mediaType)) return cur;
@@ -511,14 +544,24 @@ export default function App() {
     });
   };
 
-  const removeFromWatchlist = (item: TmdbResult) => {
+  const removeFromWatchlist = (item: { id?: number; title?: string; mediaType?: string }) => {
     setWatchlist((cur) => {
-      const next = cur.filter((w) => !(w.id === item.id && w.mediaType === item.mediaType));
+      const next = cur.filter((w) => {
+        const idMatch = Boolean(item.id && item.id !== 0 && w.id === item.id);
+        const titleMatch = Boolean(item.title && w.title && w.title.trim().toLowerCase() === item.title.trim().toLowerCase());
+        return !(idMatch || titleMatch);
+      });
       AsyncStorage.setItem(WATCHLIST_KEY, JSON.stringify(next)).catch(() => undefined);
       if (supabase && session) {
-        supabase.from('watchlist').delete()
-          .match({ user_id: session.user.id, tmdb_id: item.id, media_type: item.mediaType })
-          .then(() => undefined);
+        if (item.id && item.id !== 0) {
+          supabase.from('watchlist').delete()
+            .match({ user_id: session.user.id, tmdb_id: item.id })
+            .then(() => undefined);
+        } else if (item.title) {
+          supabase.from('watchlist').delete()
+            .match({ user_id: session.user.id, title: item.title })
+            .then(() => undefined);
+        }
       }
       return next;
     });
@@ -600,7 +643,7 @@ export default function App() {
 
   const tabContent = (
     <Animated.View
-      style={[styles.content, { transform: [{ translateX: slideAnim }] }]}
+      style={[styles.content, { transform: [{ translateX: slideAnim }], opacity: tabOpacity }]}
       {...panResponder.panHandlers}
     >
       {tab === 'home' && (
@@ -670,7 +713,8 @@ export default function App() {
           onAddToLibrary={addFromCatalog}
           onRemoveFromLibrary={() => {
             // Keep modal open, just remove from library state
-            removeFromLibrary(selected.title);
+            const tid = 'tmdbId' in selected ? selected.tmdbId : ('id' in selected ? selected.id : undefined);
+            removeFromLibrary(selected.title, tid);
           }}
           onAddToWatchlist={(tmdbItem) => {
             addToWatchlist(tmdbItem);
@@ -1656,6 +1700,184 @@ function Profile({
   );
 }
 
+// ─── Destination Slider (Library <-> None <-> Watchlist) ─────────────────────
+
+function DestinationSlider({
+  state,
+  onChange,
+  lang,
+}: {
+  state: 'library' | 'watchlist' | 'none';
+  onChange: (dest: 'library' | 'watchlist' | 'none') => void;
+  lang: Language;
+}) {
+  const t = i18n[lang];
+  const [trackWidth, setTrackWidth] = useState(0);
+
+  const knobWidth = trackWidth > 0 ? (trackWidth - 8) / 3 : 108;
+  const travel = knobWidth;
+
+  const targetX = state === 'library' ? -travel : state === 'watchlist' ? travel : 0;
+  const translateX = useRef(new Animated.Value(targetX)).current;
+  const isDragging = useRef(false);
+
+  useEffect(() => {
+    if (!isDragging.current && trackWidth > 0) {
+      Animated.timing(translateX, {
+        toValue: targetX,
+        duration: 260,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [state, targetX, trackWidth]);
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > 3,
+        onPanResponderGrant: () => {
+          isDragging.current = true;
+        },
+        onPanResponderMove: (_e, gestureState) => {
+          const currentBase = state === 'library' ? -travel : state === 'watchlist' ? travel : 0;
+          const clamped = Math.max(-travel, Math.min(travel, currentBase + gestureState.dx));
+          translateX.setValue(clamped);
+        },
+        onPanResponderRelease: (_e, gestureState) => {
+          isDragging.current = false;
+          const currentBase = state === 'library' ? -travel : state === 'watchlist' ? travel : 0;
+          const finalPos = currentBase + gestureState.dx;
+          const threshold = travel * 0.35;
+
+          let nextDest: 'library' | 'watchlist' | 'none' = 'none';
+          if (finalPos < -threshold) {
+            nextDest = 'library';
+          } else if (finalPos > threshold) {
+            nextDest = 'watchlist';
+          } else {
+            nextDest = 'none';
+          }
+
+          onChange(nextDest);
+          const nextTarget = nextDest === 'library' ? -travel : nextDest === 'watchlist' ? travel : 0;
+          Animated.timing(translateX, {
+            toValue: nextTarget,
+            duration: 220,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }).start();
+        },
+      }),
+    [state, travel, onChange],
+  );
+
+  const handleSlotPress = (dest: 'library' | 'watchlist' | 'none') => {
+    const next = state === dest ? 'none' : dest;
+    onChange(next);
+  };
+
+  return (
+    <View style={sliderSt.container}>
+      <View
+        style={sliderSt.track}
+        onLayout={(e) => {
+          const w = e.nativeEvent.layout.width;
+          if (w > 0) setTrackWidth(w);
+        }}
+      >
+        {/* Animated Sliding Knob */}
+        {trackWidth > 0 && (
+          <Animated.View
+            style={[
+              sliderSt.knob,
+              {
+                width: knobWidth,
+                left: '50%',
+                marginLeft: -knobWidth / 2,
+                transform: [{ translateX }],
+                backgroundColor:
+                  state === 'library'
+                    ? C.bordeaux
+                    : state === 'watchlist'
+                    ? '#9E1C33'
+                    : '#221619',
+                borderColor:
+                  state === 'library'
+                    ? C.bordeauxLight
+                    : state === 'watchlist'
+                    ? '#D93856'
+                    : '#3D252B',
+              },
+            ]}
+            {...panResponder.panHandlers}
+          >
+            <Text
+              style={[
+                sliderSt.knobText,
+                state !== 'none' && sliderSt.knobTextActive,
+              ]}
+              numberOfLines={1}
+            >
+              {state === 'library'
+                ? `✓ ${t.inLibrary}`
+                : state === 'watchlist'
+                ? `⭐ ${t.inWatchlist}`
+                : `⚪ ${t.neutralNone}`}
+            </Text>
+          </Animated.View>
+        )}
+
+        {/* 3 Clickable Slots behind knob */}
+        <Pressable
+          onPress={() => handleSlotPress('library')}
+          style={[sliderSt.slot, { width: '33.33%' }]}
+        >
+          <Text
+            style={[
+              sliderSt.slotLabel,
+              state === 'library' && sliderSt.slotLabelActive,
+            ]}
+          >
+            📚 {t.library}
+          </Text>
+        </Pressable>
+
+        <Pressable
+          onPress={() => handleSlotPress('none')}
+          style={[sliderSt.slot, { width: '33.33%' }]}
+        >
+          <Text
+            style={[
+              sliderSt.slotLabel,
+              state === 'none' && sliderSt.slotLabelActive,
+            ]}
+          >
+            —
+          </Text>
+        </Pressable>
+
+        <Pressable
+          onPress={() => handleSlotPress('watchlist')}
+          style={[sliderSt.slot, { width: '33.33%' }]}
+        >
+          <Text
+            style={[
+              sliderSt.slotLabel,
+              state === 'watchlist' && sliderSt.slotLabelActive,
+            ]}
+          >
+            ⭐ {t.watchlist}
+          </Text>
+        </Pressable>
+      </View>
+
+      <Text style={sliderSt.hintText}>{t.dragHint}</Text>
+    </View>
+  );
+}
+
 // ─── Series & Movie Detail Modal ──────────────────────────────────────────────
 
 function SeriesDetailModal({
@@ -1689,8 +1911,20 @@ function SeriesDetailModal({
   const tmdbId = 'tmdbId' in item ? item.tmdbId : ('id' in item ? item.id : undefined);
   const mediaType: 'series' | 'movie' = item.mediaType ?? 'series';
 
-  const inLibrary = library.some((s) => s.title === item.title || (tmdbId && s.tmdbId === tmdbId));
-  const inWatchlist = watchlist.some((w) => w.title === item.title || (tmdbId && w.id === tmdbId));
+  const inLibrary = library.some((s) =>
+    (tmdbId && s.tmdbId === tmdbId) ||
+    (s.title && s.title.trim().toLowerCase() === item.title.trim().toLowerCase())
+  );
+  const inWatchlist = watchlist.some((w) =>
+    (tmdbId && w.id === tmdbId) ||
+    (w.title && w.title.trim().toLowerCase() === item.title.trim().toLowerCase())
+  );
+
+  const destinationState: 'library' | 'watchlist' | 'none' = inLibrary
+    ? 'library'
+    : inWatchlist
+    ? 'watchlist'
+    : 'none';
 
   const [details, setDetails] = useState<{
     overview?: string;
@@ -1708,16 +1942,29 @@ function SeriesDetailModal({
   const [seasonEpisodes, setSeasonEpisodes] = useState<Record<number, TmdbEpisodeInfo[]>>({});
   const [loadingEpisodes, setLoadingEpisodes] = useState(false);
 
-  // Popcorn animation
+  // Soft and smooth popcorn animation
   const popcornScale = useRef(new Animated.Value(0)).current;
   const popcornOpacity = useRef(new Animated.Value(0)).current;
 
   const triggerPopcornAnimation = () => {
-    popcornScale.setValue(0.3);
+    popcornScale.setValue(0.25);
     popcornOpacity.setValue(1);
-    Animated.sequence([
-      Animated.spring(popcornScale, { toValue: 1.4, friction: 4, useNativeDriver: true }),
-      Animated.timing(popcornOpacity, { toValue: 0, duration: 350, useNativeDriver: true }),
+    Animated.parallel([
+      Animated.timing(popcornScale, {
+        toValue: 1.25,
+        duration: 320,
+        easing: Easing.out(Easing.back(1.5)),
+        useNativeDriver: true,
+      }),
+      Animated.sequence([
+        Animated.delay(220),
+        Animated.timing(popcornOpacity, {
+          toValue: 0,
+          duration: 350,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
     ]).start();
   };
 
@@ -1788,11 +2035,18 @@ function SeriesDetailModal({
     });
   };
 
-  const handleLibraryClick = () => {
-    triggerPopcornAnimation();
-    if (inLibrary) {
-      onRemoveFromLibrary();
-    } else {
+  const handleDestinationChange = (newDest: 'library' | 'watchlist' | 'none') => {
+    if (newDest === destinationState) return;
+
+    if (newDest === 'library') {
+      triggerPopcornAnimation();
+      if (inWatchlist) {
+        onRemoveFromWatchlist({
+          id: tmdbId ?? 0,
+          mediaType,
+          title: item.title,
+        });
+      }
       onAddToLibrary({
         id: tmdbId ?? 0,
         mediaType,
@@ -1801,20 +2055,11 @@ function SeriesDetailModal({
         overview: details.overview || item.overview,
         totalEpisodes: details.totalEpisodes,
       });
-    }
-  };
-
-  const handleWatchlistClick = () => {
-    triggerPopcornAnimation();
-    if (inWatchlist) {
-      onRemoveFromWatchlist({
-        id: tmdbId ?? 0,
-        mediaType,
-        title: item.title,
-        posterPath: details.posterPath || item.posterPath,
-        overview: details.overview || item.overview,
-      });
-    } else {
+    } else if (newDest === 'watchlist') {
+      triggerPopcornAnimation();
+      if (inLibrary) {
+        onRemoveFromLibrary();
+      }
       onAddToWatchlist({
         id: tmdbId ?? 0,
         mediaType,
@@ -1822,6 +2067,18 @@ function SeriesDetailModal({
         posterPath: details.posterPath || item.posterPath,
         overview: details.overview || item.overview,
       });
+    } else {
+      // 'none' - user slid or tapped to neutral
+      if (inLibrary) {
+        onRemoveFromLibrary();
+      }
+      if (inWatchlist) {
+        onRemoveFromWatchlist({
+          id: tmdbId ?? 0,
+          mediaType,
+          title: item.title,
+        });
+      }
     }
   };
 
@@ -1888,32 +2145,12 @@ function SeriesDetailModal({
           {details.overview || t.noOverview}
         </Text>
 
-        {/* Action Buttons: Add to Library vs Add to Watchlist */}
-        <View style={detailSt.buttonRow}>
-          <Pressable
-            onPress={handleLibraryClick}
-            style={[
-              detailSt.actionBtn,
-              inLibrary ? detailSt.actionBtnActive : detailSt.actionBtnInactive,
-            ]}
-          >
-            <Text style={[detailSt.actionBtnText, inLibrary && detailSt.actionBtnTextActive]}>
-              {inLibrary ? `✓ ${t.inLibrary}` : `+ ${t.addToLibrary}`}
-            </Text>
-          </Pressable>
-
-          <Pressable
-            onPress={handleWatchlistClick}
-            style={[
-              detailSt.actionBtn,
-              inWatchlist ? detailSt.actionBtnActive : detailSt.actionBtnInactive,
-            ]}
-          >
-            <Text style={[detailSt.actionBtnText, inWatchlist && detailSt.actionBtnTextActive]}>
-              {inWatchlist ? `⭐ ${t.inWatchlist}` : `+ ${t.addToWatchlist}`}
-            </Text>
-          </Pressable>
-        </View>
+        {/* Interactive Drag & Tap Destination Slider: Left (Library) vs Right (Watchlist) vs Center (None) */}
+        <DestinationSlider
+          state={destinationState}
+          onChange={handleDestinationChange}
+          lang={lang}
+        />
 
         {/* MOVIE VIEW: No seasons, just Movie status & eye button */}
         {mediaType === 'movie' ? (
@@ -2641,6 +2878,75 @@ const profSt = StyleSheet.create({
   langBtnActive: { borderColor: C.bordeaux, backgroundColor: C.bordeaux },
   langBtnText: { color: C.muted, fontWeight: '700', fontSize: 12 },
   langBtnTextActive: { color: C.cream },
+});
+
+const sliderSt = StyleSheet.create({
+  container: {
+    marginVertical: 18,
+    alignItems: 'center',
+    width: '100%',
+  },
+  track: {
+    width: '100%',
+    maxWidth: 360,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#150D10',
+    borderWidth: 1.5,
+    borderColor: '#382026',
+    flexDirection: 'row',
+    alignItems: 'center',
+    position: 'relative',
+    overflow: 'hidden',
+    padding: 3,
+  },
+  knob: {
+    position: 'absolute',
+    top: 3,
+    bottom: 3,
+    borderRadius: 23,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.45,
+    shadowRadius: 5,
+    elevation: 4,
+    paddingHorizontal: 4,
+  },
+  knobText: {
+    color: '#8A6D75',
+    fontSize: 12,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  knobTextActive: {
+    color: C.cream,
+  },
+  slot: {
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 5,
+  },
+  slotLabel: {
+    color: '#6E5259',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  slotLabelActive: {
+    color: '#B3959C',
+    fontWeight: '800',
+  },
+  hintText: {
+    color: '#7A5C63',
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 8,
+    textAlign: 'center',
+  },
 });
 
 const detailSt = StyleSheet.create({
