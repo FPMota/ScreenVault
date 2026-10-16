@@ -124,6 +124,11 @@ const i18n = {
     viewAllSeries: 'All',
     season: 'Season',
     episodesTitle: 'Episodes',
+    markSeriesWatched: 'Mark Entire Series',
+    allSeriesWatched: 'Series Watched',
+    markSeasonWatched: 'Mark Season',
+    unmarkSeasonWatched: 'Season Watched',
+    watchedCount: 'watched',
     noOverview: 'No overview available for this title.',
     loadingEpisodes: 'Loading episodes...',
     seeAll: 'See all',
@@ -201,6 +206,11 @@ const i18n = {
     viewAllSeries: 'Tudo',
     season: 'Temporada',
     episodesTitle: 'Episódios',
+    markSeriesWatched: 'Marcar Série Toda',
+    allSeriesWatched: 'Série Toda Vista',
+    markSeasonWatched: 'Marcar Temporada',
+    unmarkSeasonWatched: 'Temporada Vista',
+    watchedCount: 'vistos',
     noOverview: 'Sem sinopse disponível.',
     loadingEpisodes: 'A carregar episódios...',
     seeAll: 'Ver tudo',
@@ -2046,7 +2056,119 @@ function SeriesDetailModal({
     const arr = Array.from(nextList);
     onUpdatePersonal({
       watchedEpList: arr,
-      watchedEpisodes: arr.length,
+      watchedEpisodes: arr.filter((k) => k !== 'MOVIE').length,
+      lastWatched: Date.now(),
+    });
+  };
+
+  // Check if a season is fully watched
+  const isSeasonFullyWatched = (sNum: number) => {
+    const sInfo = details.seasons.find((s) => s.seasonNumber === sNum);
+    const count = seasonEpisodes[sNum]?.length ?? sInfo?.episodeCount ?? 0;
+    if (count === 0) return false;
+    for (let i = 1; i <= count; i++) {
+      if (!watchedEpSet.has(`S${sNum}E${i}`)) return false;
+    }
+    return true;
+  };
+
+  // Watched count for a season
+  const seasonWatchedCount = (sNum: number) => {
+    const sInfo = details.seasons.find((s) => s.seasonNumber === sNum);
+    const count = seasonEpisodes[sNum]?.length ?? sInfo?.episodeCount ?? 0;
+    let watched = 0;
+    for (let i = 1; i <= count; i++) {
+      if (watchedEpSet.has(`S${sNum}E${i}`)) watched++;
+    }
+    return watched;
+  };
+
+  // Toggle all episodes in a season
+  const toggleSeasonWatched = (sNum: number) => {
+    triggerPopcornAnimation();
+    const sInfo = details.seasons.find((s) => s.seasonNumber === sNum);
+    const eps = seasonEpisodes[sNum];
+    const count = eps?.length ?? sInfo?.episodeCount ?? 0;
+    if (count === 0) return;
+
+    const alreadyWatched = isSeasonFullyWatched(sNum);
+    const nextList = new Set(watchedEpSet);
+
+    for (let i = 1; i <= count; i++) {
+      const key = `S${sNum}E${i}`;
+      if (alreadyWatched) {
+        nextList.delete(key);
+      } else {
+        nextList.add(key);
+      }
+    }
+    if (eps) {
+      for (const ep of eps) {
+        const key = `S${sNum}E${ep.episodeNumber}`;
+        if (alreadyWatched) {
+          nextList.delete(key);
+        } else {
+          nextList.add(key);
+        }
+      }
+    }
+
+    const arr = Array.from(nextList);
+    onUpdatePersonal({
+      watchedEpList: arr,
+      watchedEpisodes: arr.filter((k) => k !== 'MOVIE').length,
+      lastWatched: Date.now(),
+    });
+  };
+
+  // Check if entire series is fully watched
+  const isSeriesFullyWatched = useMemo(() => {
+    if (details.seasons.length === 0) return false;
+    for (const s of details.seasons) {
+      if (s.seasonNumber === 0) continue; // Skip specials
+      const count = seasonEpisodes[s.seasonNumber]?.length ?? s.episodeCount;
+      if (count === 0) continue;
+      for (let i = 1; i <= count; i++) {
+        if (!watchedEpSet.has(`S${s.seasonNumber}E${i}`)) return false;
+      }
+    }
+    return true;
+  }, [details.seasons, seasonEpisodes, watchedEpSet]);
+
+  // Toggle all episodes across all seasons
+  const toggleEntireSeriesWatched = () => {
+    triggerPopcornAnimation();
+    const nextList = new Set(watchedEpSet);
+    const alreadyWatched = isSeriesFullyWatched;
+
+    for (const s of details.seasons) {
+      if (s.seasonNumber === 0) continue; // Skip specials
+      const eps = seasonEpisodes[s.seasonNumber];
+      const count = eps?.length ?? s.episodeCount;
+      for (let i = 1; i <= count; i++) {
+        const key = `S${s.seasonNumber}E${i}`;
+        if (alreadyWatched) {
+          nextList.delete(key);
+        } else {
+          nextList.add(key);
+        }
+      }
+      if (eps) {
+        for (const ep of eps) {
+          const key = `S${s.seasonNumber}E${ep.episodeNumber}`;
+          if (alreadyWatched) {
+            nextList.delete(key);
+          } else {
+            nextList.add(key);
+          }
+        }
+      }
+    }
+
+    const arr = Array.from(nextList);
+    onUpdatePersonal({
+      watchedEpList: arr,
+      watchedEpisodes: arr.filter((k) => k !== 'MOVIE').length,
       lastWatched: Date.now(),
     });
   };
@@ -2209,7 +2331,25 @@ function SeriesDetailModal({
           /* SERIES VIEW: Seasons & Episodes Selector */
           details.seasons.length > 0 && (
             <View style={detailSt.seasonsSection}>
-              <Text style={detailSt.sectionHeading}>{t.episodesTitle}</Text>
+              <View style={detailSt.sectionHeadingRow}>
+                <Text style={detailSt.sectionHeading}>{t.episodesTitle}</Text>
+                <Pressable
+                  onPress={toggleEntireSeriesWatched}
+                  style={[
+                    detailSt.bulkSeriesBtn,
+                    isSeriesFullyWatched && detailSt.bulkSeriesBtnActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      detailSt.bulkSeriesBtnText,
+                      isSeriesFullyWatched && detailSt.bulkSeriesBtnTextActive,
+                    ]}
+                  >
+                    {isSeriesFullyWatched ? `✓ ${t.allSeriesWatched}` : `+ ${t.markSeriesWatched}`}
+                  </Text>
+                </Pressable>
+              </View>
 
               {/* Horizontal scroll of seasons */}
               <ScrollView
@@ -2219,26 +2359,64 @@ function SeriesDetailModal({
                 bounces
                 contentContainerStyle={detailSt.seasonPillsRow}
               >
-                {details.seasons.map((s) => (
+                {details.seasons.map((s) => {
+                  const isSeasonDone = isSeasonFullyWatched(s.seasonNumber);
+                  return (
+                    <Pressable
+                      key={`season-${s.seasonNumber}`}
+                      onPress={() => setSelectedSeason(s.seasonNumber)}
+                      style={[
+                        detailSt.seasonPill,
+                        selectedSeason === s.seasonNumber && detailSt.seasonPillActive,
+                        isSeasonDone && detailSt.seasonPillWatched,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          detailSt.seasonPillText,
+                          selectedSeason === s.seasonNumber && detailSt.seasonPillTextActive,
+                          isSeasonDone && detailSt.seasonPillTextWatched,
+                        ]}
+                      >
+                        {s.name}{isSeasonDone ? ' ✓' : ''}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+
+              {/* Season Header & Quick Mark Season Button */}
+              {typeof selectedSeason === 'number' && (
+                <View style={detailSt.seasonHeaderRow}>
+                  <View>
+                    <Text style={detailSt.seasonTitleText}>
+                      {details.seasons.find((s) => s.seasonNumber === selectedSeason)?.name || `${t.season} ${selectedSeason}`}
+                    </Text>
+                    <Text style={detailSt.seasonMetaText}>
+                      {seasonWatchedCount(selectedSeason)} / {details.seasons.find((s) => s.seasonNumber === selectedSeason)?.episodeCount ?? seasonEpisodes[selectedSeason]?.length ?? 0} {t.watchedCount}
+                    </Text>
+                  </View>
+
                   <Pressable
-                    key={`season-${s.seasonNumber}`}
-                    onPress={() => setSelectedSeason(s.seasonNumber)}
+                    onPress={() => toggleSeasonWatched(selectedSeason)}
                     style={[
-                      detailSt.seasonPill,
-                      selectedSeason === s.seasonNumber && detailSt.seasonPillActive,
+                      detailSt.seasonToggleBtn,
+                      isSeasonFullyWatched(selectedSeason) && detailSt.seasonToggleBtnActive,
                     ]}
                   >
                     <Text
                       style={[
-                        detailSt.seasonPillText,
-                        selectedSeason === s.seasonNumber && detailSt.seasonPillTextActive,
+                        detailSt.seasonToggleBtnText,
+                        isSeasonFullyWatched(selectedSeason) && detailSt.seasonToggleBtnTextActive,
                       ]}
                     >
-                      {s.name}
+                      {isSeasonFullyWatched(selectedSeason)
+                        ? `✓ ${t.unmarkSeasonWatched}`
+                        : `+ ${t.markSeasonWatched}`}
                     </Text>
                   </Pressable>
-                ))}
-              </ScrollView>
+                </View>
+              )}
 
               {/* Episodes List for selected season */}
               {loadingEpisodes ? (
@@ -3044,7 +3222,33 @@ const detailSt = StyleSheet.create({
   movieSubText: { color: C.gold, fontSize: 12, marginTop: 4, fontWeight: '600' },
   // Series view
   seasonsSection: { marginTop: 10 },
-  sectionHeading: { color: C.cream, fontSize: 18, fontWeight: '800', marginBottom: 12 },
+  sectionHeadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  sectionHeading: { color: C.cream, fontSize: 18, fontWeight: '800' },
+  bulkSeriesBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surface,
+  },
+  bulkSeriesBtnActive: {
+    backgroundColor: C.bordeaux,
+    borderColor: C.bordeaux,
+  },
+  bulkSeriesBtnText: {
+    color: C.gold,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  bulkSeriesBtnTextActive: {
+    color: C.cream,
+  },
   seasonPillsRow: { gap: 8, paddingBottom: 12 },
   seasonPill: {
     paddingHorizontal: 14, paddingVertical: 7, borderRadius: 18,
@@ -3053,8 +3257,57 @@ const detailSt = StyleSheet.create({
   seasonPillActive: {
     backgroundColor: C.bordeaux, borderColor: C.bordeaux,
   },
+  seasonPillWatched: {
+    borderColor: C.bordeaux,
+    backgroundColor: '#261418',
+  },
   seasonPillText: { color: C.muted, fontSize: 12, fontWeight: '700' },
   seasonPillTextActive: { color: C.cream },
+  seasonPillTextWatched: { color: C.gold },
+  seasonHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: C.surface,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: C.border,
+    marginTop: 8,
+    marginBottom: 10,
+  },
+  seasonTitleText: {
+    color: C.cream,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  seasonMetaText: {
+    color: C.muted,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  seasonToggleBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surface2,
+  },
+  seasonToggleBtnActive: {
+    backgroundColor: C.bordeaux,
+    borderColor: C.bordeaux,
+  },
+  seasonToggleBtnText: {
+    color: C.cream,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  seasonToggleBtnTextActive: {
+    color: C.cream,
+    fontWeight: '800',
+  },
   episodesList: { marginTop: 8, gap: 10 },
   episodeRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
