@@ -447,6 +447,12 @@ export default function App() {
       AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(cl)).catch(() => undefined);
     });
 
+    // Check user_metadata for avatar
+    if (session.user.user_metadata?.avatar_url) {
+      setAvatar(session.user.user_metadata.avatar_url);
+      AsyncStorage.setItem(AVATAR_KEY, session.user.user_metadata.avatar_url).catch(() => undefined);
+    }
+
     supabase.storage.from('avatars').createSignedUrl(`${session.user.id}/avatar`, 3600)
       .then(({ data }) => { if (data?.signedUrl) setAvatar(data.signedUrl); })
       .catch(() => undefined);
@@ -469,6 +475,35 @@ export default function App() {
         }
       }, () => undefined);
 
+    // Realtime listener on profiles table so photos update across all devices instantly
+    const profileChannel = supabase
+      .channel(`profile-realtime-${session.user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'profiles',
+          filter: `id=eq.${session.user.id}`,
+        },
+        (payload) => {
+          const newRow = payload.new as any;
+          if (newRow?.avatar_url) {
+            setAvatar(newRow.avatar_url);
+            AsyncStorage.setItem(AVATAR_KEY, newRow.avatar_url).catch(() => undefined);
+          }
+          if (newRow?.username) {
+            setUsername(newRow.username);
+            AsyncStorage.setItem(USERNAME_KEY, newRow.username).catch(() => undefined);
+          }
+          if (newRow?.bio) {
+            setBio(newRow.bio);
+            AsyncStorage.setItem(BIO_KEY, newRow.bio).catch(() => undefined);
+          }
+        },
+      )
+      .subscribe();
+
     supabase.from('watchlist').select('*').then(({ data }) => {
       if (!data) return;
       const items: TmdbResult[] = data.map((r) => ({
@@ -481,6 +516,10 @@ export default function App() {
       setWatchlist(items);
       AsyncStorage.setItem(WATCHLIST_KEY, JSON.stringify(items)).catch(() => undefined);
     }).then(undefined, () => undefined);
+
+    return () => {
+      profileChannel.unsubscribe();
+    };
   }, [session]);
 
   const syncSeries = (series: Series, entry: PersonalData) => {
@@ -613,40 +652,93 @@ export default function App() {
   const authenticate = async (email: string, password: string, mode: 'signIn' | 'signUp') => {
     if (!supabase) return 'Database connection not configured yet.';
     if (password.length < 8) return 'Password must be at least 8 characters.';
-    const result = mode === 'signIn'
-      ? await supabase.auth.signInWithPassword({ email, password })
-      : await supabase.auth.signUp({ email, password });
-    return result.error?.message ?? (mode === 'signUp' && !result.data.session ? 'Check your email and confirm your account.' : null);
+
+    if (mode === 'signIn') {
+      const result = await supabase.auth.signInWithPassword({ email, password });
+      if (result.error) {
+        if (result.error.message.toLowerCase().includes('invalid login credentials')) {
+          return lang === 'pt' ? 'Email ou palavra-passe incorretos.' : 'Invalid email or password.';
+        }
+        return result.error.message;
+      }
+      return null;
+    } else {
+      const result = await supabase.auth.signUp({ email, password });
+      if (result.error) {
+        const msg = result.error.message.toLowerCase();
+        if (
+          msg.includes('already registered') ||
+          msg.includes('already exists') ||
+          msg.includes('user already exists') ||
+          msg.includes('email address has already been registered')
+        ) {
+          return lang === 'pt'
+            ? 'Este email já se encontra registado. Inicia sessão na tua conta.'
+            : 'An account with this email already exists. Please sign in instead.';
+        }
+        return result.error.message;
+      }
+
+      // Check Supabase identities: if identities is empty array, email is already registered
+      if (
+        result.data?.user &&
+        Array.isArray(result.data.user.identities) &&
+        result.data.user.identities.length === 0
+      ) {
+        return lang === 'pt'
+          ? 'Este email já se encontra registado. Inicia sessão na tua conta.'
+          : 'An account with this email already exists. Please sign in instead.';
+      }
+
+      if (!result.data.session) {
+        return lang === 'pt'
+          ? 'Conta criada! Confirma o teu email para entrar.'
+          : 'Account created! Please check your email to confirm.';
+      }
+      return null;
+    }
   };
 
   const signOut = () => supabase?.auth.signOut();
 
   const uploadAvatar = async (uri: string) => {
+    if (avatar && uri === avatar) {
+      alert(
+        lang === 'pt'
+          ? 'Esta fotografia já é a tua foto atual. Escolhe uma fotografia diferente.'
+          : 'This is already your current photo. Please choose a different photo.',
+      );
+      return;
+    }
+
     setAvatar(uri);
     AsyncStorage.setItem(AVATAR_KEY, uri).catch(() => undefined);
     if (!supabase || !session) return;
 
-    // Persist directly to profiles table so all devices (mobile + PC) sync the photo
+    // 1. Persist directly to profiles table so all devices (mobile + PC) sync the photo
     try {
       await supabase.from('profiles').upsert({
         id: session.user.id,
         avatar_url: uri,
         updated_at: new Date().toISOString(),
       });
-    } catch { /* ignore if column not yet added */ }
+    } catch { /* ignore */ }
 
+    // 2. Also persist to user_metadata in Supabase Auth
+    try {
+      await supabase.auth.updateUser({
+        data: { avatar_url: uri },
+      });
+    } catch { /* ignore */ }
+
+    // 3. Try to upload to storage bucket
     try {
       const response = await fetch(uri);
       const blob = await response.blob();
-      const arrayBuffer = await new Promise<ArrayBuffer>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as ArrayBuffer);
-        reader.onerror = reject;
-        reader.readAsArrayBuffer(blob);
-      });
+      const arrayBuffer = await blob.arrayBuffer();
       await supabase.storage.from('avatars')
         .upload(`${session.user.id}/avatar`, arrayBuffer, { upsert: true, contentType: 'image/jpeg' });
-    } catch { /* keep local */ }
+    } catch { /* keep local & database copy */ }
   };
 
   const handleSaveProfile = async (newUsername: string, newBio: string) => {
@@ -1037,7 +1129,7 @@ function Home({
 
         {/* Bordeaux Outline Search icon button */}
         <Pressable onPress={onOpenSearch} style={homeSt.searchOutlineBtn}>
-          <Text style={homeSt.searchOutlineIcon}>⚲</Text>
+          <Text style={homeSt.searchOutlineIcon}>🔍</Text>
           <Text style={homeSt.searchOutlineText}>{t.search}</Text>
         </Pressable>
       </View>
@@ -1049,12 +1141,12 @@ function Home({
         bounces
       >
 
-      {/* Continue Watching: Compact Posters, horizontal scroll, no mark watched button */}
-      {continueWatching.length > 0 && (
-        <View style={{ marginTop: 12 }}>
-          <Text style={styles.sectionHeader}>{t.continueWatching}</Text>
-          <Text style={styles.subtitle}>{t.pickUp}</Text>
+      {/* Continue Watching: Compact Posters, horizontal scroll, always visible */}
+      <View style={{ marginTop: 12 }}>
+        <Text style={styles.sectionHeader}>{t.continueWatching}</Text>
+        <Text style={styles.subtitle}>{t.pickUp}</Text>
 
+        {continueWatching.length > 0 ? (
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -1086,15 +1178,21 @@ function Home({
               </Pressable>
             ))}
           </ScrollView>
-        </View>
-      )}
+        ) : (
+          <View style={homeSt.emptySectionCard}>
+            <Text style={homeSt.emptySectionText}>
+              {lang === 'pt' ? 'Nenhuma série a decorrer de momento.' : 'No series in progress.'}
+            </Text>
+          </View>
+        )}
+      </View>
 
-      {/* Recent Activity */}
-      {recentActivity.length > 0 && (
-        <View style={{ marginTop: continueWatching.length > 0 ? 24 : 12 }}>
-          <Text style={styles.sectionHeader}>{t.recentActivity}</Text>
-          <Text style={styles.subtitle}>{t.recentActivitySub}</Text>
+      {/* Recent Activity: Always visible */}
+      <View style={{ marginTop: 22 }}>
+        <Text style={styles.sectionHeader}>{t.recentActivity}</Text>
+        <Text style={styles.subtitle}>{t.recentActivitySub}</Text>
 
+        {recentActivity.length > 0 ? (
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -1120,14 +1218,14 @@ function Home({
               </Pressable>
             ))}
           </ScrollView>
-        </View>
-      )}
-
-      {continueWatching.length === 0 && recentActivity.length === 0 && (
-        <View style={{ marginTop: 24 }}>
-          <Empty text={t.emptyHome} />
-        </View>
-      )}
+        ) : (
+          <View style={homeSt.emptySectionCard}>
+            <Text style={homeSt.emptySectionText}>
+              {lang === 'pt' ? 'Sem atividade recente registada.' : 'No recent activity yet.'}
+            </Text>
+          </View>
+        )}
+      </View>
       </ScrollView>
     </View>
   );
@@ -1168,8 +1266,9 @@ function Library({
     <View style={styles.flex}>
       <View style={styles.libraryHeader}>
         <Text style={styles.pageTitle}>{t.library}</Text>
-        <Pressable onPress={onOpenSearch} style={catSt.addButton}>
-          <Text style={catSt.addText}>+ {t.search}</Text>
+        <Pressable onPress={onOpenSearch} style={homeSt.searchOutlineBtn}>
+          <Text style={homeSt.searchOutlineIcon}>🔍</Text>
+          <Text style={homeSt.searchOutlineText}>{t.search}</Text>
         </Pressable>
       </View>
 
@@ -1244,8 +1343,9 @@ function Watchlist({
             <Text style={wlSt.viewModeIcon}>{isCompact ? '☰ List' : '▦ Grid'}</Text>
           </Pressable>
         </View>
-        <Pressable onPress={onOpenSearch} style={catSt.addButton}>
-          <Text style={catSt.addText}>+ {t.search}</Text>
+        <Pressable onPress={onOpenSearch} style={homeSt.searchOutlineBtn}>
+          <Text style={homeSt.searchOutlineIcon}>🔍</Text>
+          <Text style={homeSt.searchOutlineText}>{t.search}</Text>
         </Pressable>
       </View>
 
@@ -1389,6 +1489,12 @@ function Profile({
     [library, lastWatched],
   );
 
+  // Completed / watched series
+  const completedSeries = useMemo(() =>
+    library.filter((s) => progress(s) >= s.totalEpisodes && s.totalEpisodes > 0),
+    [library, progress],
+  );
+
   return (
     <View style={styles.flex}>
       {/* Fixed Sticky Header at Top */}
@@ -1405,7 +1511,7 @@ function Profile({
         overScrollMode="always"
         bounces
       >
-        <AvatarPicker avatar={avatar} onPick={onUploadAvatar} label={t.changePhoto} />
+        <AvatarPicker avatar={avatar} onPick={onUploadAvatar} label={t.changePhoto} lang={lang} />
 
         {/* User Info (Username, Bio, Edit Profile button) */}
         <View style={profSt.userInfoContainer}>
@@ -1425,16 +1531,11 @@ function Profile({
           </Pressable>
         </View>
 
-        {/* Ultra-compact Dashboard line */}
+        {/* Ultra-compact Dashboard line: Séries Vistas, Séries por Acabar, Watchlist */}
         <View style={profSt.dashBar}>
           <View style={profSt.dashItem}>
             <Text style={profSt.dashNumber}>{seriesWatched}</Text>
             <Text style={profSt.dashLabel} numberOfLines={1}>{t.seriesWatched}</Text>
-          </View>
-          <View style={profSt.dashSep} />
-          <View style={profSt.dashItem}>
-            <Text style={profSt.dashNumber}>{episodesWatched}</Text>
-            <Text style={profSt.dashLabel} numberOfLines={1}>{t.episodesWatchedStat}</Text>
           </View>
           <View style={profSt.dashSep} />
           <View style={profSt.dashItem}>
@@ -1448,152 +1549,228 @@ function Profile({
           </View>
         </View>
 
-      {/* Continue Watching section in Profile (Limited to 6, then See All) */}
-      {continueWatching.length > 0 && (
+        {/* Continue Watching section in Profile */}
         <View style={{ marginTop: 22 }}>
           <View style={profSt.sectionBar}>
             <Text style={styles.sectionHeader}>{t.continueWatching}</Text>
-            {continueWatching.length > 6 ? (
-              <Pressable
-                onPress={() =>
-                  setSeeAllModal({
-                    visible: true,
-                    title: t.continueWatching,
-                    items: continueWatching,
-                  })
-                }
-                style={profSt.seeAllBtn}
-              >
-                <Text style={profSt.seeAllText}>{t.seeAll} ›</Text>
-              </Pressable>
-            ) : null}
+            <Pressable
+              onPress={() =>
+                setSeeAllModal({
+                  visible: true,
+                  title: t.continueWatching,
+                  items: continueWatching,
+                })
+              }
+              style={profSt.seeAllBtn}
+            >
+              <Text style={profSt.seeAllText}>{t.seeAll} ›</Text>
+            </Pressable>
           </View>
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            overScrollMode="always"
-            bounces
-            contentContainerStyle={profSt.hCardRow}
-            style={{ marginHorizontal: -22, marginTop: 8 }}
-          >
-            {continueWatching.slice(0, 6).map((s) => (
-              <Pressable
-                key={`prof-cw-${s.mediaType}-${s.tmdbId ?? s.title}`}
-                onPress={() => open(s)}
-                style={profSt.hCard}
-              >
-                <View style={profSt.hPoster}>
-                  {s.posterPath ? (
-                    <Image source={{ uri: posterUrl(s.posterPath) }} style={profSt.hPosterImg} resizeMode="cover" />
-                  ) : (
-                    <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
-                  )}
-                </View>
-                <Text style={profSt.hTitle} numberOfLines={2}>{s.title}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
+          {continueWatching.length > 0 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              overScrollMode="always"
+              bounces
+              contentContainerStyle={profSt.hCardRow}
+              style={{ marginHorizontal: -22, marginTop: 8 }}
+            >
+              {continueWatching.slice(0, 6).map((s) => (
+                <Pressable
+                  key={`prof-cw-${s.mediaType}-${s.tmdbId ?? s.title}`}
+                  onPress={() => open(s)}
+                  style={profSt.hCard}
+                >
+                  <View style={profSt.hPoster}>
+                    {s.posterPath ? (
+                      <Image source={{ uri: posterUrl(s.posterPath) }} style={profSt.hPosterImg} resizeMode="cover" />
+                    ) : (
+                      <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
+                    )}
+                  </View>
+                  <Text style={profSt.hTitle} numberOfLines={2}>{s.title}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          ) : (
+            <View style={homeSt.emptySectionCard}>
+              <Text style={homeSt.emptySectionText}>
+                {lang === 'pt' ? 'Nenhuma série a decorrer.' : 'No series in progress.'}
+              </Text>
+            </View>
+          )}
         </View>
-      )}
 
-      {/* Recent Activity section in Profile (Limited to 6, then See All) */}
-      {recentActivity.length > 0 && (
+        {/* Recent Activity section in Profile */}
         <View style={{ marginTop: 22 }}>
           <View style={profSt.sectionBar}>
             <Text style={styles.sectionHeader}>{t.recentActivity}</Text>
-            {recentActivity.length > 6 ? (
-              <Pressable
-                onPress={() =>
-                  setSeeAllModal({
-                    visible: true,
-                    title: t.recentActivity,
-                    items: recentActivity,
-                  })
-                }
-                style={profSt.seeAllBtn}
-              >
-                <Text style={profSt.seeAllText}>{t.seeAll} ›</Text>
-              </Pressable>
-            ) : null}
+            <Pressable
+              onPress={() =>
+                setSeeAllModal({
+                  visible: true,
+                  title: t.recentActivity,
+                  items: recentActivity,
+                })
+              }
+              style={profSt.seeAllBtn}
+            >
+              <Text style={profSt.seeAllText}>{t.seeAll} ›</Text>
+            </Pressable>
           </View>
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            overScrollMode="always"
-            bounces
-            contentContainerStyle={profSt.hCardRow}
-            style={{ marginHorizontal: -22, marginTop: 8 }}
-          >
-            {recentActivity.slice(0, 6).map((s) => (
-              <Pressable
-                key={`prof-ra-${s.mediaType}-${s.tmdbId ?? s.title}`}
-                onPress={() => open(s)}
-                style={profSt.hCard}
-              >
-                <View style={profSt.hPoster}>
-                  {s.posterPath ? (
-                    <Image source={{ uri: posterUrl(s.posterPath) }} style={profSt.hPosterImg} resizeMode="cover" />
-                  ) : (
-                    <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
-                  )}
-                </View>
-                <Text style={profSt.hTitle} numberOfLines={2}>{s.title}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
+          {recentActivity.length > 0 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              overScrollMode="always"
+              bounces
+              contentContainerStyle={profSt.hCardRow}
+              style={{ marginHorizontal: -22, marginTop: 8 }}
+            >
+              {recentActivity.slice(0, 6).map((s) => (
+                <Pressable
+                  key={`prof-ra-${s.mediaType}-${s.tmdbId ?? s.title}`}
+                  onPress={() => open(s)}
+                  style={profSt.hCard}
+                >
+                  <View style={profSt.hPoster}>
+                    {s.posterPath ? (
+                      <Image source={{ uri: posterUrl(s.posterPath) }} style={profSt.hPosterImg} resizeMode="cover" />
+                    ) : (
+                      <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
+                    )}
+                  </View>
+                  <Text style={profSt.hTitle} numberOfLines={2}>{s.title}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          ) : (
+            <View style={homeSt.emptySectionCard}>
+              <Text style={homeSt.emptySectionText}>
+                {lang === 'pt' ? 'Sem atividade recente.' : 'No recent activity.'}
+              </Text>
+            </View>
+          )}
         </View>
-      )}
 
-      {/* Watchlist section in Profile (Limited to 6, then See All) */}
-      {watchlist.length > 0 && (
+        {/* Watchlist section in Profile */}
         <View style={{ marginTop: 22 }}>
           <View style={profSt.sectionBar}>
             <Text style={styles.sectionHeader}>{t.watchlist}</Text>
-            {watchlist.length > 6 ? (
-              <Pressable
-                onPress={() =>
-                  setSeeAllModal({
-                    visible: true,
-                    title: t.watchlist,
-                    items: watchlist,
-                  })
-                }
-                style={profSt.seeAllBtn}
-              >
-                <Text style={profSt.seeAllText}>{t.seeAll} ›</Text>
-              </Pressable>
-            ) : null}
+            <Pressable
+              onPress={() =>
+                setSeeAllModal({
+                  visible: true,
+                  title: t.watchlist,
+                  items: watchlist,
+                })
+              }
+              style={profSt.seeAllBtn}
+            >
+              <Text style={profSt.seeAllText}>{t.seeAll} ›</Text>
+            </Pressable>
           </View>
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            overScrollMode="always"
-            bounces
-            contentContainerStyle={profSt.hCardRow}
-            style={{ marginHorizontal: -22, marginTop: 8 }}
-          >
-            {watchlist.slice(0, 6).map((w) => (
-              <Pressable
-                key={`prof-wl-${w.mediaType}-${w.id}`}
-                onPress={() => open(w)}
-                style={profSt.hCard}
-              >
-                <View style={profSt.hPoster}>
-                  {w.posterPath ? (
-                    <Image source={{ uri: posterUrl(w.posterPath) }} style={profSt.hPosterImg} resizeMode="cover" />
-                  ) : (
-                    <Text style={homeSt.fallbackPosterText}>{w.title.slice(0, 1)}</Text>
-                  )}
-                </View>
-                <Text style={profSt.hTitle} numberOfLines={2}>{w.title}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
+          {watchlist.length > 0 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              overScrollMode="always"
+              bounces
+              contentContainerStyle={profSt.hCardRow}
+              style={{ marginHorizontal: -22, marginTop: 8 }}
+            >
+              {watchlist.slice(0, 6).map((w) => (
+                <Pressable
+                  key={`prof-wl-${w.mediaType}-${w.id}`}
+                  onPress={() => open(w)}
+                  style={profSt.hCard}
+                >
+                  <View style={profSt.hPoster}>
+                    {w.posterPath ? (
+                      <Image source={{ uri: posterUrl(w.posterPath) }} style={profSt.hPosterImg} resizeMode="cover" />
+                    ) : (
+                      <Text style={homeSt.fallbackPosterText}>{w.title.slice(0, 1)}</Text>
+                    )}
+                  </View>
+                  <Text style={profSt.hTitle} numberOfLines={2}>{w.title}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          ) : (
+            <View style={homeSt.emptySectionCard}>
+              <Text style={homeSt.emptySectionText}>
+                {lang === 'pt' ? 'A tua watchlist está vazia.' : 'Your watchlist is empty.'}
+              </Text>
+            </View>
+          )}
         </View>
-      )}
+
+        {/* Watched Series section in Profile (under Watchlist) */}
+        <View style={{ marginTop: 22 }}>
+          <View style={profSt.sectionBar}>
+            <Text style={styles.sectionHeader}>{t.seriesWatched}</Text>
+            <Pressable
+              onPress={() =>
+                setSeeAllModal({
+                  visible: true,
+                  title: t.seriesWatched,
+                  items: completedSeries,
+                })
+              }
+              style={profSt.seeAllBtn}
+            >
+              <Text style={profSt.seeAllText}>{t.seeAll} ›</Text>
+            </Pressable>
+          </View>
+
+          {completedSeries.length > 0 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              overScrollMode="always"
+              bounces
+              contentContainerStyle={profSt.hCardRow}
+              style={{ marginHorizontal: -22, marginTop: 8 }}
+            >
+              {completedSeries.slice(0, 6).map((s) => (
+                <Pressable
+                  key={`prof-comp-${s.mediaType}-${s.tmdbId ?? s.title}`}
+                  onPress={() => open(s)}
+                  style={profSt.hCard}
+                >
+                  <View style={profSt.hPoster}>
+                    {s.posterPath ? (
+                      <Image source={{ uri: posterUrl(s.posterPath) }} style={profSt.hPosterImg} resizeMode="cover" />
+                    ) : (
+                      <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
+                    )}
+                  </View>
+                  <Text style={profSt.hTitle} numberOfLines={2}>{s.title}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          ) : (
+            <View style={homeSt.emptySectionCard}>
+              <Text style={homeSt.emptySectionText}>
+                {lang === 'pt' ? 'Ainda não terminaste nenhuma série.' : 'No completed series yet.'}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Footer Stat Card at bottom of Profile */}
+        <View style={profSt.footerStatCard}>
+          <Text style={profSt.footerStatIcon}>🎬</Text>
+          <Text style={profSt.footerStatNumber}>{seriesWatched}</Text>
+          <Text style={profSt.footerStatLabel}>
+            {lang === 'pt'
+              ? (seriesWatched === 1 ? 'série já foi vista no total' : 'séries já foram vistas no total')
+              : (seriesWatched === 1 ? 'series watched in total' : 'series watched in total')}
+          </Text>
+        </View>
 
       {/* See All Full Modal */}
       <Modal visible={seeAllModal.visible} animationType="slide">
@@ -1743,7 +1920,18 @@ function Profile({
   );
 }
 
-// ─── Destination Slider (Library <-> None <-> Watchlist) ─────────────────────
+// ─── Destination Slider (Library <-> Watchlist) ──────────────────────────────
+
+const CONFETTI_PIECES = [
+  { emoji: '🎉', dx: -85, dy: -65, rot: -45 },
+  { emoji: '✨', dx: -55, dy: -95, rot: 25 },
+  { emoji: '🍿', dx: -15, dy: -110, rot: -10 },
+  { emoji: '⭐', dx: 30, dy: -110, rot: 35 },
+  { emoji: '🎊', dx: 70, dy: -90, rot: 60 },
+  { emoji: '🎬', dx: 95, dy: -60, rot: -20 },
+  { emoji: '✨', dx: -70, dy: -35, rot: 40 },
+  { emoji: '🎉', dx: 65, dy: -35, rot: -30 },
+];
 
 function DestinationSlider({
   state,
@@ -1755,25 +1943,40 @@ function DestinationSlider({
   lang: Language;
 }) {
   const t = i18n[lang];
-  const [trackWidth, setTrackWidth] = useState(0);
+  const [trackWidth, setTrackWidth] = useState(250);
 
-  const knobWidth = trackWidth > 0 ? (trackWidth - 8) / 3 : 108;
-  const travel = knobWidth;
+  const knobSize = 40;
+  const padding = 3;
+  const travel = Math.max(40, trackWidth - knobSize - padding * 2);
 
-  const targetX = state === 'library' ? -travel : state === 'watchlist' ? travel : 0;
+  const isWatchlist = state === 'watchlist';
+  const targetX = isWatchlist ? travel : 0;
   const translateX = useRef(new Animated.Value(targetX)).current;
   const isDragging = useRef(false);
+  const dragStart = useRef(targetX);
+
+  const confettiAnim = useRef(new Animated.Value(0)).current;
+
+  const triggerConfetti = () => {
+    confettiAnim.setValue(0);
+    Animated.timing(confettiAnim, {
+      toValue: 1,
+      duration: 850,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  };
 
   useEffect(() => {
-    if (!isDragging.current && trackWidth > 0) {
-      Animated.timing(translateX, {
+    if (!isDragging.current) {
+      Animated.spring(translateX, {
         toValue: targetX,
-        duration: 260,
-        easing: Easing.out(Easing.cubic),
+        friction: 8,
+        tension: 65,
         useNativeDriver: true,
       }).start();
     }
-  }, [state, targetX, trackWidth]);
+  }, [targetX]);
 
   const panResponder = useMemo(
     () =>
@@ -1782,141 +1985,196 @@ function DestinationSlider({
         onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > 3,
         onPanResponderGrant: () => {
           isDragging.current = true;
+          dragStart.current = state === 'watchlist' ? travel : 0;
         },
         onPanResponderMove: (_e, gestureState) => {
-          const currentBase = state === 'library' ? -travel : state === 'watchlist' ? travel : 0;
-          const clamped = Math.max(-travel, Math.min(travel, currentBase + gestureState.dx));
-          translateX.setValue(clamped);
+          const nextPos = Math.max(0, Math.min(travel, dragStart.current + gestureState.dx));
+          translateX.setValue(nextPos);
         },
         onPanResponderRelease: (_e, gestureState) => {
           isDragging.current = false;
-          const currentBase = state === 'library' ? -travel : state === 'watchlist' ? travel : 0;
-          const finalPos = currentBase + gestureState.dx;
-          const threshold = travel * 0.35;
+          const currentPos = Math.max(0, Math.min(travel, dragStart.current + gestureState.dx));
+          const halfway = travel * 0.5;
 
-          let nextDest: 'library' | 'watchlist' | 'none' = 'none';
-          if (finalPos < -threshold) {
-            nextDest = 'library';
-          } else if (finalPos > threshold) {
-            nextDest = 'watchlist';
+          // Pure binary snap: never catches or stops in the middle!
+          // If release doesn't pass halfway, falls back where it came from ("cai onde tava").
+          let nextDest: 'library' | 'watchlist' = 'library';
+
+          if (state === 'watchlist') {
+            if (currentPos > halfway) {
+              // Did not reach halfway to the left -> falls back to watchlist
+              nextDest = 'watchlist';
+            } else {
+              // Crossed halfway -> snaps to library
+              nextDest = 'library';
+            }
           } else {
-            nextDest = 'none';
+            // Started at library or none
+            if (currentPos < halfway) {
+              // Did not reach halfway to the right -> falls back to library
+              nextDest = 'library';
+            } else {
+              // Crossed halfway -> snaps to watchlist
+              nextDest = 'watchlist';
+            }
           }
 
-          onChange(nextDest);
-          const nextTarget = nextDest === 'library' ? -travel : nextDest === 'watchlist' ? travel : 0;
-          Animated.timing(translateX, {
+          const nextTarget = nextDest === 'watchlist' ? travel : 0;
+          Animated.spring(translateX, {
             toValue: nextTarget,
-            duration: 220,
-            easing: Easing.out(Easing.cubic),
+            friction: 7,
+            tension: 55,
             useNativeDriver: true,
           }).start();
+
+          if (nextDest !== state) {
+            triggerConfetti();
+          }
+          onChange(nextDest);
         },
       }),
     [state, travel, onChange],
   );
 
-  const handleSlotPress = (dest: 'library' | 'watchlist' | 'none') => {
-    const next = state === dest ? 'none' : dest;
-    onChange(next);
+  const handleSidePress = (dest: 'library' | 'watchlist') => {
+    if (state !== dest) {
+      triggerConfetti();
+    }
+    onChange(dest);
   };
+
+  const trackBgColor =
+    state === 'library'
+      ? '#8B1A2E'
+      : state === 'watchlist'
+      ? '#9E1C33'
+      : '#1E1417';
+
+  const trackBorderColor =
+    state === 'library'
+      ? '#A6223B'
+      : state === 'watchlist'
+      ? '#D93856'
+      : '#3D262C';
 
   return (
     <View style={sliderSt.container}>
+      {/* Celebratory Confetti Burst */}
+      <View pointerEvents="none" style={sliderSt.confettiLayer}>
+        {CONFETTI_PIECES.map((p, idx) => (
+          <Animated.View
+            key={idx}
+            style={[
+              sliderSt.confettiItem,
+              {
+                opacity: confettiAnim.interpolate({
+                  inputRange: [0, 0.1, 0.7, 1],
+                  outputRange: [0, 1, 0.85, 0],
+                }),
+                transform: [
+                  {
+                    translateX: confettiAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, p.dx],
+                    }),
+                  },
+                  {
+                    translateY: confettiAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, p.dy],
+                    }),
+                  },
+                  {
+                    scale: confettiAnim.interpolate({
+                      inputRange: [0, 0.25, 0.7, 1],
+                      outputRange: [0.2, 1.35, 1, 0.2],
+                    }),
+                  },
+                  {
+                    rotate: confettiAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: ['0deg', `${p.rot * 4}deg`],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <Text style={sliderSt.confettiEmoji}>{p.emoji}</Text>
+          </Animated.View>
+        ))}
+      </View>
+
       <View
-        style={sliderSt.track}
+        style={[
+          sliderSt.track,
+          {
+            backgroundColor: trackBgColor,
+            borderColor: trackBorderColor,
+          },
+        ]}
         onLayout={(e) => {
           const w = e.nativeEvent.layout.width;
           if (w > 0) setTrackWidth(w);
         }}
       >
-        {/* Animated Sliding Knob */}
-        {trackWidth > 0 && (
-          <Animated.View
-            style={[
-              sliderSt.knob,
-              {
-                width: knobWidth,
-                left: '50%',
-                marginLeft: -knobWidth / 2,
-                transform: [{ translateX }],
-                backgroundColor:
-                  state === 'library'
-                    ? C.bordeaux
-                    : state === 'watchlist'
-                    ? '#9E1C33'
-                    : '#221619',
-                borderColor:
-                  state === 'library'
-                    ? C.bordeauxLight
-                    : state === 'watchlist'
-                    ? '#D93856'
-                    : '#3D252B',
-              },
-            ]}
-            {...panResponder.panHandlers}
-          >
-            <Text
-              style={[
-                sliderSt.knobText,
-                state !== 'none' && sliderSt.knobTextActive,
-              ]}
-              numberOfLines={1}
-            >
-              {state === 'library'
-                ? `✓ ${t.inLibrary}`
-                : state === 'watchlist'
-                ? `⭐ ${t.inWatchlist}`
-                : `⚪ ${t.neutralNone}`}
-            </Text>
-          </Animated.View>
-        )}
+        {/* Animated Pure White Circular iOS Knob */}
+        <Animated.View
+          style={[
+            sliderSt.knob,
+            {
+              transform: [{ translateX }],
+            },
+          ]}
+          {...panResponder.panHandlers}
+        >
+          <Text style={sliderSt.knobIcon}>
+            {state === 'watchlist' ? '⭐' : '🎬'}
+          </Text>
+        </Animated.View>
 
-        {/* 3 Clickable Slots behind knob */}
+        {/* 2 Clickable Sides: Left (Biblioteca), Right (Watchlist) */}
         <Pressable
-          onPress={() => handleSlotPress('library')}
-          style={[sliderSt.slot, { width: '33.33%' }]}
+          onPress={() => handleSidePress('library')}
+          style={[sliderSt.sideSlot, { paddingLeft: 14 }]}
         >
           <Text
             style={[
               sliderSt.slotLabel,
-              state === 'library' && sliderSt.slotLabelActive,
+              state === 'library' ? sliderSt.slotLabelActive : sliderSt.slotLabelInactive,
             ]}
+            numberOfLines={1}
           >
             📚 {t.library}
           </Text>
         </Pressable>
 
         <Pressable
-          onPress={() => handleSlotPress('none')}
-          style={[sliderSt.slot, { width: '33.33%' }]}
+          onPress={() => handleSidePress('watchlist')}
+          style={[sliderSt.sideSlot, { paddingRight: 14, alignItems: 'flex-end' }]}
         >
           <Text
             style={[
               sliderSt.slotLabel,
-              state === 'none' && sliderSt.slotLabelActive,
+              state === 'watchlist' ? sliderSt.slotLabelActive : sliderSt.slotLabelInactive,
             ]}
-          >
-            —
-          </Text>
-        </Pressable>
-
-        <Pressable
-          onPress={() => handleSlotPress('watchlist')}
-          style={[sliderSt.slot, { width: '33.33%' }]}
-        >
-          <Text
-            style={[
-              sliderSt.slotLabel,
-              state === 'watchlist' && sliderSt.slotLabelActive,
-            ]}
+            numberOfLines={1}
           >
             ⭐ {t.watchlist}
           </Text>
         </Pressable>
       </View>
 
-      <Text style={sliderSt.hintText}>{t.dragHint}</Text>
+      {/* Remove option when item is active in either Library or Watchlist */}
+      {state !== 'none' ? (
+        <Pressable onPress={() => onChange('none')} style={sliderSt.removeBtn}>
+          <Text style={sliderSt.removeBtnText}>
+            ✕ {state === 'library' ? t.removeFromLibrary : t.removeFromWatchlist}
+          </Text>
+        </Pressable>
+      ) : (
+        <Text style={sliderSt.hintText}>{t.dragHint}</Text>
+      )}
     </View>
   );
 }
@@ -2534,9 +2792,15 @@ function SearchCatalogModal({
                 style={catSt.searchInput}
                 autoFocus
               />
-              <Pressable onPress={search} style={catSt.searchButton}>
-                {loading ? <ActivityIndicator color={C.cream} size="small" /> :
-                  <Text style={catSt.searchButtonText}>{t.search}</Text>}
+              <Pressable onPress={search} style={[homeSt.searchOutlineBtn, { marginBottom: 0, height: 46, justifyContent: 'center' }]}>
+                {loading ? (
+                  <ActivityIndicator color={C.cream} size="small" />
+                ) : (
+                  <>
+                    <Text style={homeSt.searchOutlineIcon}>🔍</Text>
+                    <Text style={homeSt.searchOutlineText}>{t.search}</Text>
+                  </>
+                )}
               </Pressable>
             </View>
 
@@ -2716,11 +2980,76 @@ function AvatarPicker({
   avatar,
   onPick,
   label,
+  lang,
 }: {
   avatar: string | null;
   onPick: (uri: string) => void;
   label: string;
+  lang: Language;
 }) {
+  const [loading, setLoading] = useState(false);
+
+  const processFile = (file: File) => {
+    setLoading(true);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const rawDataUrl = reader.result as string;
+      const img = new (window as any).Image();
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          const size = Math.min(img.width, img.height);
+          const startX = (img.width - size) / 2;
+          const startY = (img.height - size) / 2;
+
+          const targetDim = 256;
+          canvas.width = targetDim;
+          canvas.height = targetDim;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, startX, startY, size, size, 0, 0, targetDim, targetDim);
+            const compressed = canvas.toDataURL('image/jpeg', 0.82);
+
+            // Validate: não deve ser possível deixar a mesma fotografia
+            if (avatar && (compressed === avatar || rawDataUrl === avatar)) {
+              alert(
+                lang === 'pt'
+                  ? 'Esta fotografia já é a tua foto atual. Escolhe uma fotografia diferente.'
+                  : 'This is already your current photo. Please choose a different photo.',
+              );
+              setLoading(false);
+              return;
+            }
+
+            onPick(compressed);
+          } else {
+            if (avatar && rawDataUrl === avatar) {
+              alert(
+                lang === 'pt'
+                  ? 'Esta fotografia já é a tua foto atual. Escolhe uma fotografia diferente.'
+                  : 'This is already your current photo. Please choose a different photo.',
+              );
+              setLoading(false);
+              return;
+            }
+            onPick(rawDataUrl);
+          }
+        } catch {
+          onPick(rawDataUrl);
+        } finally {
+          setLoading(false);
+        }
+      };
+      img.onerror = () => {
+        onPick(rawDataUrl);
+        setLoading(false);
+      };
+      img.src = rawDataUrl;
+    };
+    reader.onerror = () => setLoading(false);
+    reader.readAsDataURL(file);
+  };
+
   const pick = async () => {
     if (Platform.OS === 'web') {
       const input = document.createElement('input');
@@ -2729,9 +3058,7 @@ function AvatarPicker({
       input.onchange = (e) => {
         const file = (e.target as HTMLInputElement).files?.[0];
         if (!file) return;
-        const reader = new FileReader();
-        reader.onload = () => onPick(reader.result as string);
-        reader.readAsDataURL(file);
+        processFile(file);
       };
       input.click();
     } else {
@@ -2744,21 +3071,40 @@ function AvatarPicker({
           mediaTypes: IP.MediaTypeOptions?.Images ?? 'images',
           allowsEditing: true,
           aspect: [1, 1],
-          quality: 0.8,
+          quality: 0.7,
+          base64: true,
         });
-        if (!res.canceled && res.assets?.[0]) onPick(res.assets[0].uri);
+        if (!res.canceled && res.assets?.[0]) {
+          const asset = res.assets[0];
+          const newUri = asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : asset.uri;
+          if (avatar && newUri === avatar) {
+            alert(
+              lang === 'pt'
+                ? 'Esta fotografia já é a tua foto atual. Escolhe uma fotografia diferente.'
+                : 'This is already your current photo. Please choose a different photo.',
+            );
+            return;
+          }
+          onPick(newUri);
+        }
       } catch { /* not installed */ }
     }
   };
 
   return (
-    <Pressable onPress={pick} style={profSt.avatarContainer}>
-      {avatar ? (
+    <Pressable onPress={pick} style={profSt.avatarContainer} disabled={loading}>
+      {loading ? (
+        <View style={profSt.avatarPlaceholder}>
+          <ActivityIndicator color={C.bordeaux} size="small" />
+        </View>
+      ) : avatar ? (
         <Image source={{ uri: avatar }} style={profSt.avatar} />
       ) : (
         <View style={profSt.avatarPlaceholder}><Text style={profSt.avatarIcon}>👤</Text></View>
       )}
-      <Text style={profSt.avatarLabel}>{label}</Text>
+      <Text style={profSt.avatarLabel}>
+        {loading ? (lang === 'pt' ? 'A guardar...' : 'Saving...') : label}
+      </Text>
     </Pressable>
   );
 }
@@ -2945,6 +3291,23 @@ const homeSt = StyleSheet.create({
     paddingHorizontal: 4, paddingVertical: 2,
   },
   epBadgeText: { color: C.gold, fontSize: 9, fontWeight: '700' },
+  emptySectionCard: {
+    backgroundColor: C.surface,
+    borderRadius: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: C.border,
+    marginTop: 6,
+    marginBottom: 4,
+    alignItems: 'center',
+  },
+  emptySectionText: {
+    color: C.muted,
+    fontSize: 12,
+    fontStyle: 'italic',
+    textAlign: 'center',
+  },
 });
 
 const wlSt = StyleSheet.create({
@@ -3080,6 +3443,36 @@ const profSt = StyleSheet.create({
   },
   hPosterImg: { width: '100%', height: '100%' },
   hTitle: { color: C.cream, fontSize: 10, fontWeight: '600', marginTop: 4, textAlign: 'center', lineHeight: 13 },
+  footerStatCard: {
+    marginTop: 26,
+    marginBottom: 16,
+    backgroundColor: C.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: C.border,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  footerStatIcon: {
+    fontSize: 26,
+    marginBottom: 4,
+  },
+  footerStatNumber: {
+    color: C.bordeauxLight,
+    fontSize: 32,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  footerStatLabel: {
+    color: C.muted,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
   settingsSectionLabel: { color: C.gold, fontWeight: '700', fontSize: 13, marginTop: 16, marginBottom: 8 },
   langRow: { flexDirection: 'row', gap: 10 },
   langBtn: {
@@ -3096,17 +3489,32 @@ const sliderSt = StyleSheet.create({
     marginVertical: 18,
     alignItems: 'center',
     width: '100%',
+    position: 'relative',
+  },
+  confettiLayer: {
+    position: 'absolute',
+    top: 24,
+    alignSelf: 'center',
+    width: 1,
+    height: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 99,
+  },
+  confettiItem: {
+    position: 'absolute',
+  },
+  confettiEmoji: {
+    fontSize: 22,
   },
   track: {
-    width: '100%',
-    maxWidth: 360,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: '#150D10',
+    width: 250,
+    height: 48,
+    borderRadius: 24,
     borderWidth: 1.5,
-    borderColor: '#382026',
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     position: 'relative',
     overflow: 'hidden',
     padding: 3,
@@ -3114,45 +3522,53 @@ const sliderSt = StyleSheet.create({
   knob: {
     position: 'absolute',
     top: 3,
-    bottom: 3,
-    borderRadius: 23,
-    borderWidth: 1.5,
+    left: 3,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 10,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.45,
-    shadowRadius: 5,
-    elevation: 4,
-    paddingHorizontal: 4,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    elevation: 6,
   },
-  knobText: {
-    color: '#8A6D75',
-    fontSize: 12,
-    fontWeight: '800',
-    textAlign: 'center',
+  knobIcon: {
+    fontSize: 18,
   },
-  knobTextActive: {
-    color: C.cream,
-  },
-  slot: {
+  sideSlot: {
+    flex: 1,
     height: '100%',
-    alignItems: 'center',
     justifyContent: 'center',
     zIndex: 5,
   },
   slotLabel: {
-    color: '#6E5259',
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '700',
   },
   slotLabelActive: {
-    color: '#B3959C',
+    color: '#FFFFFF',
     fontWeight: '800',
   },
+  slotLabelInactive: {
+    color: 'rgba(255, 230, 235, 0.75)',
+  },
+  removeBtn: {
+    marginTop: 10,
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+  },
+  removeBtnText: {
+    color: '#C48A96',
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   hintText: {
-    color: '#7A5C63',
+    color: '#8A6A72',
     fontSize: 11,
     fontWeight: '600',
     marginTop: 8,
@@ -3381,10 +3797,10 @@ const styles = StyleSheet.create({
   chevron: { color: C.border, fontSize: 22 },
   tabbar: {
     backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.border,
-    flexDirection: 'row', justifyContent: 'space-around', paddingTop: 10,
-    paddingBottom: (Platform.OS === 'web' ? 'max(20px, calc(10px + env(safe-area-inset-bottom, 0px)))' : 24) as any,
+    flexDirection: 'row', justifyContent: 'space-around', paddingTop: 5,
+    paddingBottom: (Platform.OS === 'web' ? 'calc(2px + env(safe-area-inset-bottom, 4px))' : 8) as any,
   },
-  tab: { alignItems: 'center', minWidth: 60, flex: 1 },
+  tab: { alignItems: 'center', minWidth: 60, flex: 1, paddingVertical: 2 },
   tabIcon: { color: C.muted, fontSize: 20 },
   tabIconActive: { color: C.bordeaux, transform: [{ scale: 1.15 }] },
   tabLabel: { color: C.muted, fontSize: 10, marginTop: 2 },
