@@ -156,3 +156,10 @@ create policy "Users can update own profile"
 --   on storage.objects for update
 --   to authenticated
 --   using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+
+-- ─── Realtime Replication ───────────────────────────────────────────────────────
+-- Run in Supabase SQL editor to enable instant live sync across open devices:
+alter publication supabase_realtime add table public.series_entries;
+alter publication supabase_realtime add table public.watchlist;
+alter publication supabase_realtime add table public.profiles;
+

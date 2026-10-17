@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
+  AppState,
   Dimensions,
   Easing,
   FlatList,
@@ -90,7 +91,7 @@ export const i18n = {
     searchCatalogPrompt: 'Search movies or series...',
     search: 'Search',
     addContent: 'Add',
-    versionText: 'Version 1.2 - 16/10/2026',
+    versionText: 'Version 1.3 - 17/10/2026',
     all: 'All',
     watching: 'Watching',
     finishedToContinue: 'Finished – To Continue',
@@ -184,7 +185,7 @@ export const i18n = {
     searchCatalogPrompt: 'Pesquisar filmes ou séries...',
     search: 'Pesquisar',
     addContent: 'Adicionar',
-    versionText: 'Versão 1.2 - 16/10/2026',
+    versionText: 'Versão 1.3 - 17/10/2026',
     all: 'Todas',
     watching: 'A ver',
     finishedToContinue: 'Terminadas por ver',
@@ -322,12 +323,86 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchModalOpen, setSearchModalOpen] = useState(false);
 
+  // Supabase Database Fetchers — Database is the single source of truth
+  const fetchLibrary = (targetUid?: string) => {
+    const uid = targetUid || session?.user?.id;
+    if (!supabase || !uid) return;
+    supabase
+      .from('series_entries')
+      .select('*')
+      .eq('user_id', uid)
+      .order('title')
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('Error fetching series_entries from Supabase:', error);
+          return;
+        }
+        if (!data) return;
+        const cl: Series[] = data.map((r) => ({
+          title: r.title,
+          collection: r.collection as Collection,
+          watchedEpisodes: r.watched_episodes ?? 0,
+          totalEpisodes: r.total_episodes ?? 0,
+          mediaType: (r.media_type as 'series' | 'movie') || 'series',
+          tmdbId: r.tmdb_id ?? undefined,
+          posterPath: r.poster_path ?? undefined,
+          lastWatched: r.last_watched ? Number(r.last_watched) : undefined,
+        }));
+        const cp = Object.fromEntries(
+          data.map((r) => [
+            r.title,
+            {
+              watchedEpisodes: r.watched_episodes ?? 0,
+              rating: r.rating ?? undefined,
+              review: r.review ?? undefined,
+              lastWatched: r.last_watched ? Number(r.last_watched) : undefined,
+            },
+          ]),
+        );
+        setLibrary(cl);
+        setPersonal((cur) => ({ ...cur, ...cp }));
+        AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(cl)).catch(() => undefined);
+      });
+  };
+
+  const fetchWatchlist = (targetUid?: string) => {
+    const uid = targetUid || session?.user?.id;
+    if (!supabase || !uid) return;
+    supabase
+      .from('watchlist')
+      .select('*')
+      .eq('user_id', uid)
+      .order('created_at', { ascending: false })
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('Error fetching watchlist from Supabase:', error);
+          return;
+        }
+        if (!data) return;
+        const items: TmdbResult[] = data.map((r) => ({
+          id: Number(r.tmdb_id) || Number(r.id) || 0,
+          mediaType: (r.media_type as 'series' | 'movie') || 'series',
+          title: r.title,
+          posterPath: r.poster_path ?? undefined,
+          overview: r.overview ?? undefined,
+        }));
+        setWatchlist(items);
+        AsyncStorage.setItem(WATCHLIST_KEY, JSON.stringify(items)).catch(() => undefined);
+      });
+  };
+
   // Tab switch horizontal animation
   const slideAnim = useRef(new Animated.Value(0)).current;
   const tabOpacity = useRef(new Animated.Value(1)).current;
   const tabIndexRef = useRef(0);
 
   const goToTab = (next: Tab) => {
+    // Re-sync with Supabase on tab switch so changes from other devices appear immediately
+    if (session?.user?.id) {
+      fetchLibrary(session.user.id);
+      fetchWatchlist(session.user.id);
+    }
+
     const nextIndex = TABS.indexOf(next);
     if (nextIndex === tabIndexRef.current) return;
     const direction = nextIndex > tabIndexRef.current ? 1 : -1;
@@ -518,7 +593,7 @@ export default function App() {
                 }
               }),
 
-            // Fetch library with bidirectional sync
+            // Fetch library directly from Supabase database
             supabase
               .from('series_entries')
               .select('*')
@@ -529,57 +604,37 @@ export default function App() {
                   const cl: Series[] = data.map((r) => ({
                     title: r.title,
                     collection: r.collection as Collection,
-                    watchedEpisodes: r.watched_episodes,
-                    totalEpisodes: r.total_episodes,
-                    mediaType: r.media_type as 'series' | 'movie',
+                    watchedEpisodes: r.watched_episodes ?? 0,
+                    totalEpisodes: r.total_episodes ?? 0,
+                    mediaType: (r.media_type as 'series' | 'movie') || 'series',
                     tmdbId: r.tmdb_id ?? undefined,
                     posterPath: r.poster_path ?? undefined,
-                    lastWatched: r.last_watched ?? undefined,
+                    lastWatched: r.last_watched ? Number(r.last_watched) : undefined,
                   }));
                   const cp = Object.fromEntries(
-                    data
-                      .filter((r) => r.rating || r.review || r.last_watched)
-                      .map((r) => [
-                        r.title,
-                        {
-                          rating: r.rating ?? undefined,
-                          review: r.review ?? undefined,
-                          lastWatched: r.last_watched ?? undefined,
-                        },
-                      ]),
+                    data.map((r) => [
+                      r.title,
+                      {
+                        watchedEpisodes: r.watched_episodes ?? 0,
+                        rating: r.rating ?? undefined,
+                        review: r.review ?? undefined,
+                        lastWatched: r.last_watched ? Number(r.last_watched) : undefined,
+                      },
+                    ]),
                   );
 
-                  const { merged, localOnly } = mergeLibrary(localLib, cl);
-                  setLibrary(merged);
+                  setLibrary(cl);
                   setPersonal((cur) => ({ ...cur, ...cp }));
-                  AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(merged)).catch(() => undefined);
-
-                  // Upload any local items that don't exist in Supabase yet
-                  if (localOnly.length > 0 && supabase) {
-                    for (const item of localOnly) {
-                      supabase.from('series_entries').upsert({
-                        user_id: uid,
-                        media_type: item.mediaType ?? 'series',
-                        tmdb_id: item.tmdbId ?? null,
-                        poster_path: item.posterPath ?? null,
-                        title: item.title,
-                        collection: item.collection,
-                        watched_episodes: item.watchedEpisodes,
-                        total_episodes: item.totalEpisodes,
-                        rating: null,
-                        review: null,
-                        last_watched: item.lastWatched ?? null,
-                      }, { onConflict: 'user_id,media_type,title' }).then(() => undefined, () => undefined);
-                    }
-                  }
+                  AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(cl)).catch(() => undefined);
                 }
               }),
 
-            // Fetch watchlist with bidirectional sync
+            // Fetch watchlist directly from Supabase database
             supabase
               .from('watchlist')
               .select('*')
               .eq('user_id', uid)
+              .order('created_at', { ascending: false })
               .then(({ data, error }) => {
                 if (!error && data && isMounted) {
                   const items: TmdbResult[] = data.map((r) => ({
@@ -590,23 +645,8 @@ export default function App() {
                     overview: r.overview ?? undefined,
                   }));
 
-                  const { merged, localOnly } = mergeWatchlist(localWatch, items);
-                  setWatchlist(merged);
-                  AsyncStorage.setItem(WATCHLIST_KEY, JSON.stringify(merged)).catch(() => undefined);
-
-                  // Upload any local items that don't exist in Supabase yet (e.g. Rapunzel)
-                  if (localOnly.length > 0 && supabase) {
-                    for (const item of localOnly) {
-                      supabase.from('watchlist').upsert({
-                        user_id: uid,
-                        tmdb_id: item.id || 0,
-                        media_type: item.mediaType || 'series',
-                        title: item.title,
-                        poster_path: item.posterPath ?? null,
-                        overview: item.overview ?? null,
-                      }, { onConflict: 'user_id,tmdb_id,media_type' }).then(() => undefined, () => undefined);
-                    }
-                  }
+                  setWatchlist(items);
+                  AsyncStorage.setItem(WATCHLIST_KEY, JSON.stringify(items)).catch(() => undefined);
                 }
               }),
           ]),
@@ -626,6 +666,10 @@ export default function App() {
     const { data: listener } = supabase
       ? supabase.auth.onAuthStateChange((_e, s) => {
           setSession(s);
+          if (s?.user?.id) {
+            fetchLibrary(s.user.id);
+            fetchWatchlist(s.user.id);
+          }
           if (!s) setReady(true);
         })
       : { data: { subscription: { unsubscribe: () => {} } } };
@@ -644,98 +688,6 @@ export default function App() {
   // Supabase Cloud Sync
   useEffect(() => {
     if (!supabase || !session) return;
-
-    const fetchLibrary = () => {
-      if (!supabase || !session) return;
-      supabase
-        .from('series_entries')
-        .select('*')
-        .eq('user_id', session.user.id)
-        .order('title')
-        .then(({ data, error }) => {
-          if (error || !data) return;
-          const cl: Series[] = data.map((r) => ({
-            title: r.title,
-            collection: r.collection as Collection,
-            watchedEpisodes: r.watched_episodes,
-            totalEpisodes: r.total_episodes,
-            mediaType: r.media_type as 'series' | 'movie',
-            tmdbId: r.tmdb_id ?? undefined,
-            posterPath: r.poster_path ?? undefined,
-            lastWatched: r.last_watched ?? undefined,
-          }));
-          const cp = Object.fromEntries(
-            data
-              .filter((r) => r.rating || r.review || r.last_watched)
-              .map((r) => [
-                r.title,
-                {
-                  rating: r.rating ?? undefined,
-                  review: r.review ?? undefined,
-                  lastWatched: r.last_watched ?? undefined,
-                },
-              ]),
-          );
-          setLibrary((prevLocal) => {
-            const { merged, localOnly } = mergeLibrary(prevLocal, cl);
-            if (localOnly.length > 0 && supabase) {
-              for (const item of localOnly) {
-                supabase.from('series_entries').upsert({
-                  user_id: session.user.id,
-                  media_type: item.mediaType ?? 'series',
-                  tmdb_id: item.tmdbId ?? null,
-                  poster_path: item.posterPath ?? null,
-                  title: item.title,
-                  collection: item.collection,
-                  watched_episodes: item.watchedEpisodes,
-                  total_episodes: item.totalEpisodes,
-                  rating: personal[item.title]?.rating ?? null,
-                  review: personal[item.title]?.review ?? null,
-                  last_watched: personal[item.title]?.lastWatched ?? item.lastWatched ?? null,
-                }, { onConflict: 'user_id,media_type,title' }).then(() => undefined, () => undefined);
-              }
-            }
-            AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(merged)).catch(() => undefined);
-            return merged;
-          });
-          setPersonal((cur) => ({ ...cur, ...cp }));
-        });
-    };
-
-    const fetchWatchlist = () => {
-      if (!supabase || !session) return;
-      supabase
-        .from('watchlist')
-        .select('*')
-        .eq('user_id', session.user.id)
-        .then(({ data, error }) => {
-          if (error || !data) return;
-          const items: TmdbResult[] = data.map((r) => ({
-            id: Number(r.tmdb_id) || Number(r.id) || 0,
-            mediaType: (r.media_type as 'series' | 'movie') || 'series',
-            title: r.title,
-            posterPath: r.poster_path ?? undefined,
-            overview: r.overview ?? undefined,
-          }));
-          setWatchlist((prevLocal) => {
-            const { merged, localOnly } = mergeWatchlist(prevLocal, items);
-            if (localOnly.length > 0 && supabase) {
-              for (const item of localOnly) {
-                supabase.from('watchlist').upsert({
-                  user_id: session.user.id,
-                  tmdb_id: item.id || 0,
-                  media_type: item.mediaType || 'series',
-                  title: item.title,
-                  poster_path: item.posterPath ?? null,
-                  overview: item.overview ?? null,
-                }, { onConflict: 'user_id,tmdb_id,media_type' }).then(() => undefined, () => undefined);
-              }
-            }
-            AsyncStorage.setItem(WATCHLIST_KEY, JSON.stringify(merged)).catch(() => undefined);
-            return merged;
-          });
-        });
-    };
 
     fetchLibrary();
     fetchWatchlist();
@@ -847,7 +799,7 @@ export default function App() {
       )
       .subscribe();
 
-    // Visibility / focus listener to re-sync immediately when phone screen turns on or user switches tabs
+    // Visibility / focus listener to re-sync immediately when phone screen turns on, app is foregrounded, or user switches tabs
     let visibilityCleanup = () => {};
     if (Platform.OS === 'web' && typeof document !== 'undefined') {
       const handleVisibilityChange = () => {
@@ -860,11 +812,19 @@ export default function App() {
       visibilityCleanup = () => document.removeEventListener('visibilitychange', handleVisibilityChange);
     }
 
+    const appStateSub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        fetchLibrary();
+        fetchWatchlist();
+      }
+    });
+
     return () => {
       profileChannel.unsubscribe();
       watchlistChannel.unsubscribe();
       seriesChannel.unsubscribe();
       visibilityCleanup();
+      appStateSub.remove();
     };
   }, [session]);
 
@@ -1007,6 +967,10 @@ export default function App() {
         }
         return result.error.message;
       }
+      if (result.data?.session?.user?.id) {
+        fetchLibrary(result.data.session.user.id);
+        fetchWatchlist(result.data.session.user.id);
+      }
       return null;
     } else {
       const result = await supabase.auth.signUp({ email, password });
@@ -1045,7 +1009,29 @@ export default function App() {
     }
   };
 
-  const signOut = () => supabase?.auth.signOut();
+  const signOut = async () => {
+    try {
+      await supabase?.auth.signOut();
+    } finally {
+      setSession(null);
+      setLibrary([]);
+      setWatchlist([]);
+      setPersonal({});
+      setUsername('');
+      setBio('');
+      setAvatar(null);
+      setBanner(null);
+      AsyncStorage.multiRemove([
+        LIBRARY_KEY,
+        WATCHLIST_KEY,
+        STORAGE_KEY,
+        USERNAME_KEY,
+        BIO_KEY,
+        AVATAR_KEY,
+        BANNER_KEY,
+      ]).catch(() => undefined);
+    }
+  };
 
   const uploadAvatar = async (uri: string) => {
     if (avatar && uri === avatar) {
