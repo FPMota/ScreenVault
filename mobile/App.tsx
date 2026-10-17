@@ -76,7 +76,7 @@ const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
 // ─── Translations ─────────────────────────────────────────────────────────────
 
-const i18n = {
+export const i18n = {
   en: {
     home: 'Home',
     library: 'Library',
@@ -281,6 +281,28 @@ const C = {
   error: '#FF8080',
 };
 
+// ─── Cloud Sync Helpers ───────────────────────────────────────────────────────
+
+export function mergeLibrary(local: Series[], remote: Series[]): { merged: Series[]; localOnly: Series[] } {
+  const remoteKeys = new Set(
+    remote.map((s) => `${s.mediaType ?? 'series'}:${s.tmdbId ?? s.title.trim().toLowerCase()}`)
+  );
+  const localOnly = local.filter(
+    (s) => !remoteKeys.has(`${s.mediaType ?? 'series'}:${s.tmdbId ?? s.title.trim().toLowerCase()}`)
+  );
+  return { merged: [...remote, ...localOnly], localOnly };
+}
+
+export function mergeWatchlist(local: TmdbResult[], remote: TmdbResult[]): { merged: TmdbResult[]; localOnly: TmdbResult[] } {
+  const remoteKeys = new Set(
+    remote.map((w) => `${w.mediaType ?? 'series'}:${w.id || w.title.trim().toLowerCase()}`)
+  );
+  const localOnly = local.filter(
+    (w) => !remoteKeys.has(`${w.mediaType ?? 'series'}:${w.id || w.title.trim().toLowerCase()}`)
+  );
+  return { merged: [...remote, ...localOnly], localOnly };
+}
+
 // ─── Main App ─────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -414,6 +436,8 @@ export default function App() {
 
     async function initialize() {
       // 1. Read local storage cache
+      let localLib: Series[] = [];
+      let localWatch: TmdbResult[] = [];
       try {
         const [p, l, w, a, ban, la, un, bi] = await Promise.all([
           AsyncStorage.getItem(STORAGE_KEY),
@@ -427,8 +451,14 @@ export default function App() {
         ]);
         if (!isMounted) return;
         if (p) setPersonal(JSON.parse(p));
-        if (l) setLibrary(JSON.parse(l));
-        if (w) setWatchlist(JSON.parse(w));
+        if (l) {
+          localLib = JSON.parse(l);
+          setLibrary(localLib);
+        }
+        if (w) {
+          localWatch = JSON.parse(w);
+          setWatchlist(localWatch);
+        }
         if (a) setAvatar(a);
         if (ban) setBanner(ban);
         if (la === 'en' || la === 'pt') setLang(la);
@@ -488,7 +518,7 @@ export default function App() {
                 }
               }),
 
-            // Fetch library
+            // Fetch library with bidirectional sync
             supabase
               .from('series_entries')
               .select('*')
@@ -518,13 +548,34 @@ export default function App() {
                         },
                       ]),
                   );
-                  setLibrary(cl);
+
+                  const { merged, localOnly } = mergeLibrary(localLib, cl);
+                  setLibrary(merged);
                   setPersonal((cur) => ({ ...cur, ...cp }));
-                  AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(cl)).catch(() => undefined);
+                  AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(merged)).catch(() => undefined);
+
+                  // Upload any local items that don't exist in Supabase yet
+                  if (localOnly.length > 0 && supabase) {
+                    for (const item of localOnly) {
+                      supabase.from('series_entries').upsert({
+                        user_id: uid,
+                        media_type: item.mediaType ?? 'series',
+                        tmdb_id: item.tmdbId ?? null,
+                        poster_path: item.posterPath ?? null,
+                        title: item.title,
+                        collection: item.collection,
+                        watched_episodes: item.watchedEpisodes,
+                        total_episodes: item.totalEpisodes,
+                        rating: null,
+                        review: null,
+                        last_watched: item.lastWatched ?? null,
+                      }, { onConflict: 'user_id,media_type,title' }).then(() => undefined, () => undefined);
+                    }
+                  }
                 }
               }),
 
-            // Fetch watchlist
+            // Fetch watchlist with bidirectional sync
             supabase
               .from('watchlist')
               .select('*')
@@ -538,8 +589,24 @@ export default function App() {
                     posterPath: r.poster_path ?? undefined,
                     overview: r.overview ?? undefined,
                   }));
-                  setWatchlist(items);
-                  AsyncStorage.setItem(WATCHLIST_KEY, JSON.stringify(items)).catch(() => undefined);
+
+                  const { merged, localOnly } = mergeWatchlist(localWatch, items);
+                  setWatchlist(merged);
+                  AsyncStorage.setItem(WATCHLIST_KEY, JSON.stringify(merged)).catch(() => undefined);
+
+                  // Upload any local items that don't exist in Supabase yet (e.g. Rapunzel)
+                  if (localOnly.length > 0 && supabase) {
+                    for (const item of localOnly) {
+                      supabase.from('watchlist').upsert({
+                        user_id: uid,
+                        tmdb_id: item.id || 0,
+                        media_type: item.mediaType || 'series',
+                        title: item.title,
+                        poster_path: item.posterPath ?? null,
+                        overview: item.overview ?? null,
+                      }, { onConflict: 'user_id,tmdb_id,media_type' }).then(() => undefined, () => undefined);
+                    }
+                  }
                 }
               }),
           ]),
@@ -609,9 +676,29 @@ export default function App() {
                 },
               ]),
           );
-          setLibrary(cl);
+          setLibrary((prevLocal) => {
+            const { merged, localOnly } = mergeLibrary(prevLocal, cl);
+            if (localOnly.length > 0 && supabase) {
+              for (const item of localOnly) {
+                supabase.from('series_entries').upsert({
+                  user_id: session.user.id,
+                  media_type: item.mediaType ?? 'series',
+                  tmdb_id: item.tmdbId ?? null,
+                  poster_path: item.posterPath ?? null,
+                  title: item.title,
+                  collection: item.collection,
+                  watched_episodes: item.watchedEpisodes,
+                  total_episodes: item.totalEpisodes,
+                  rating: personal[item.title]?.rating ?? null,
+                  review: personal[item.title]?.review ?? null,
+                  last_watched: personal[item.title]?.lastWatched ?? item.lastWatched ?? null,
+                }, { onConflict: 'user_id,media_type,title' }).then(() => undefined, () => undefined);
+              }
+            }
+            AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(merged)).catch(() => undefined);
+            return merged;
+          });
           setPersonal((cur) => ({ ...cur, ...cp }));
-          AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(cl)).catch(() => undefined);
         });
     };
 
@@ -630,8 +717,23 @@ export default function App() {
             posterPath: r.poster_path ?? undefined,
             overview: r.overview ?? undefined,
           }));
-          setWatchlist(items);
-          AsyncStorage.setItem(WATCHLIST_KEY, JSON.stringify(items)).catch(() => undefined);
+          setWatchlist((prevLocal) => {
+            const { merged, localOnly } = mergeWatchlist(prevLocal, items);
+            if (localOnly.length > 0 && supabase) {
+              for (const item of localOnly) {
+                supabase.from('watchlist').upsert({
+                  user_id: session.user.id,
+                  tmdb_id: item.id || 0,
+                  media_type: item.mediaType || 'series',
+                  title: item.title,
+                  poster_path: item.posterPath ?? null,
+                  overview: item.overview ?? null,
+                }, { onConflict: 'user_id,tmdb_id,media_type' }).then(() => undefined, () => undefined);
+              }
+            }
+            AsyncStorage.setItem(WATCHLIST_KEY, JSON.stringify(merged)).catch(() => undefined);
+            return merged;
+          });
         });
     };
 
@@ -2486,6 +2588,12 @@ function Profile({
               {email ? (
                 <View style={{ marginTop: 20 }}>
                   <Text style={profSt.accountEmail}>{email}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 8 }}>
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#22c55e', marginRight: 6 }} />
+                    <Text style={{ color: '#22c55e', fontSize: 13, fontWeight: '600' }}>
+                      {lang === 'pt' ? 'Sincronizado na Nuvem' : 'Cloud Synced'}
+                    </Text>
+                  </View>
                   <Pressable
                     onPress={() => {
                       onCloseSettings();
@@ -2497,7 +2605,18 @@ function Profile({
                   </Pressable>
                 </View>
               ) : (
-                <Text style={profSt.accountEmail}>{t.notSignedIn}</Text>
+                <View style={{ marginTop: 20 }}>
+                  <Text style={profSt.accountEmail}>{t.notSignedIn}</Text>
+                  <Pressable
+                    onPress={() => {
+                      onCloseSettings();
+                      onSignOut();
+                    }}
+                    style={[profSt.signOutButton, { backgroundColor: C.surface2, borderWidth: 1, borderColor: C.gold }]}
+                  >
+                    <Text style={[profSt.signOutText, { color: C.gold }]}>{t.signInTab}</Text>
+                  </Pressable>
+                </View>
               )}
 
               <Pressable onPress={onCloseSettings} style={{ marginTop: 22, alignSelf: 'center', paddingVertical: 6 }}>

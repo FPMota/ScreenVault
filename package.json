@@ -1,0 +1,14 @@
+{
+  "name": "screenvault",
+  "version": "1.2.0",
+  "private": true,
+  "description": "ScreenVault — Private cinema & series vault",
+  "scripts": {
+    "start": "npm --prefix mobile start",
+    "test": "npm --prefix mobile test",
+    "build": "npm --prefix mobile run build",
+    "typecheck": "npm --prefix mobile run typecheck",
+    "lint": "npm --prefix mobile run lint"
+  }
+}
+

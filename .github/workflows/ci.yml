@@ -1,0 +1,44 @@
+name: ScreenVault CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Typecheck, Test & Build
+    runs-on: ubuntu-latest
+    env:
+      EXPO_PUBLIC_SUPABASE_URL: https://dummy-project.supabase.co
+      EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: dummy-publishable-key
+      EXPO_PUBLIC_TMDB_ACCESS_TOKEN: dummy-tmdb-access-token
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: 'mobile/package-lock.json'
+
+      - name: 📦 Install dependencies
+        run: npm --prefix mobile ci
+
+      - name: 🔍 TypeScript Typecheck
+        run: npm run typecheck
+
+      - name: 🧪 Run Automated Tests
+        run: npm test
+
+      - name: 🏗️ Verify Web Export Build
+        run: npm run build
+
