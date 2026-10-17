@@ -129,10 +129,10 @@ export const i18n = {
     viewAllSeries: 'All',
     season: 'Season',
     episodesTitle: 'Episodes',
-    markSeriesWatched: 'Mark Entire Series',
-    allSeriesWatched: 'Series Watched',
-    markSeasonWatched: 'Mark Season',
-    unmarkSeasonWatched: 'Season Watched',
+    markSeriesWatched: 'Already watched whole series',
+    allSeriesWatched: 'Watched whole series',
+    markSeasonWatched: 'Already watched this season',
+    unmarkSeasonWatched: 'Watched this season',
     watchedCount: 'watched',
     noOverview: 'No overview available for this title.',
     loadingEpisodes: 'Loading episodes...',
@@ -194,7 +194,7 @@ export const i18n = {
     episodes: 'episódios',
     of: 'de',
     ep: 'Ep',
-    emptyHome: 'Ainda sem atividade. Clica em Adicionar para adicionar séries e filmes!',
+    emptyHome: 'Ainda sem atividade. Pesquisa no catálogo para adicionar séries e filmes!',
     emptyLibrary: 'Nenhuma série encontrada.',
     emptyWatchlist: 'A tua lista está vazia. Adiciona títulos para veres mais tarde.',
     settings: 'Definições',
@@ -223,10 +223,10 @@ export const i18n = {
     viewAllSeries: 'Tudo',
     season: 'Temporada',
     episodesTitle: 'Episódios',
-    markSeriesWatched: 'Marcar Série Toda',
-    allSeriesWatched: 'Série Toda Vista',
-    markSeasonWatched: 'Marcar Temporada',
-    unmarkSeasonWatched: 'Temporada Vista',
+    markSeriesWatched: 'Já vi a série toda',
+    allSeriesWatched: 'Já vi a série toda',
+    markSeasonWatched: 'Já vi esta temporada',
+    unmarkSeasonWatched: 'Já vi esta temporada',
     watchedCount: 'vistos',
     noOverview: 'Sem sinopse disponível.',
     loadingEpisodes: 'A carregar episódios...',
@@ -946,26 +946,35 @@ export default function App() {
   };
 
   const removeFromWatchlist = (item: { id?: number; title?: string; mediaType?: string }) => {
+    const isTarget = (w: TmdbResult) => {
+      const idMatch = Boolean(item.id && item.id !== 0 && w.id && w.id !== 0 && w.id === item.id);
+      const titleMatch = Boolean(
+        item.title && w.title && w.title.trim().toLowerCase() === item.title.trim().toLowerCase()
+      );
+      return idMatch || titleMatch;
+    };
+
     setWatchlist((cur) => {
-      const next = cur.filter((w) => {
-        const idMatch = Boolean(item.id && item.id !== 0 && w.id === item.id);
-        const titleMatch = Boolean(item.title && w.title && w.title.trim().toLowerCase() === item.title.trim().toLowerCase());
-        return !(idMatch || titleMatch);
-      });
+      const next = cur.filter((w) => !isTarget(w));
       AsyncStorage.setItem(WATCHLIST_KEY, JSON.stringify(next)).catch(() => undefined);
-      if (supabase && session) {
-        if (item.id && item.id !== 0) {
-          supabase.from('watchlist').delete()
-            .match({ user_id: session.user.id, tmdb_id: item.id })
-            .then(() => undefined);
-        } else if (item.title) {
-          supabase.from('watchlist').delete()
-            .match({ user_id: session.user.id, title: item.title })
-            .then(() => undefined);
-        }
-      }
       return next;
     });
+
+    if (supabase && session?.user?.id) {
+      if (item.id && item.id !== 0) {
+        supabase
+          .from('watchlist')
+          .delete()
+          .match({ user_id: session.user.id, tmdb_id: item.id })
+          .then(() => undefined, () => undefined);
+      } else if (item.title) {
+        supabase
+          .from('watchlist')
+          .delete()
+          .match({ user_id: session.user.id, title: item.title })
+          .then(() => undefined, () => undefined);
+      }
+    }
   };
 
   const authenticate = async (email: string, password: string, mode: 'signIn' | 'signUp') => {
@@ -1520,12 +1529,6 @@ function Home({
             <Text style={[styles.pageTitle, { marginTop: 0 }]}>{t.home}</Text>
           </View>
         </View>
-
-        {/* Bordeaux Outline Add icon button */}
-        <Pressable onPress={onOpenSearch} style={homeSt.searchOutlineBtn}>
-          <SearchIcon size={14} color={C.bordeaux} />
-          <Text style={homeSt.searchOutlineText}>{t.addContent}</Text>
-        </Pressable>
       </View>
 
       <ScrollView
@@ -2013,10 +2016,11 @@ function Watchlist({
         </View>
       ) : isCompact ? (
         <FlatList
-          key="compact-grid"
+          key={`compact-grid-${displayItems.length}`}
           data={displayItems}
+          extraData={displayItems}
           numColumns={3}
-          keyExtractor={(item) => `${item.mediaType}-${item.id}`}
+          keyExtractor={(item, index) => `${item.mediaType || 'item'}-${item.id || item.title || index}-${index}`}
           contentContainerStyle={wlSt.gridContainer}
           columnWrapperStyle={wlSt.gridRow}
           showsVerticalScrollIndicator={false}
@@ -2032,10 +2036,11 @@ function Watchlist({
                 )}
                 <Pressable
                   onPress={(e) => {
-                    e.stopPropagation();
+                    e?.stopPropagation?.();
                     onRemove(item);
                   }}
                   style={wlSt.removeBadge}
+                  hitSlop={8}
                 >
                   <Text style={wlSt.removeBadgeText}>✕</Text>
                 </Pressable>
@@ -2046,9 +2051,10 @@ function Watchlist({
         />
       ) : (
         <FlatList
-          key="detailed-list"
+          key={`detailed-list-${displayItems.length}`}
           data={displayItems}
-          keyExtractor={(item) => `${item.mediaType}-${item.id}`}
+          extraData={displayItems}
+          keyExtractor={(item, index) => `${item.mediaType || 'item'}-${item.id || item.title || index}-${index}`}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
           overScrollMode="always"
@@ -2058,12 +2064,23 @@ function Watchlist({
               <PosterThumb posterPath={item.posterPath} title={item.title} size="sm" />
               <View style={[styles.rowBody, { marginLeft: 12 }]}>
                 <Text style={styles.rowTitle}>{item.title}</Text>
-                <Text style={styles.rowMeta}>{item.mediaType === 'movie' ? 'Movie' : 'Series'}</Text>
+                <Text style={styles.rowMeta}>
+                  {item.mediaType === 'movie'
+                    ? (lang === 'pt' ? 'Filme' : 'Movie')
+                    : (lang === 'pt' ? 'Série' : 'Series')}
+                </Text>
                 {item.overview ? (
                   <Text numberOfLines={2} style={catSt.overview}>{item.overview}</Text>
                 ) : null}
               </View>
-              <Pressable onPress={() => onRemove(item)} style={catSt.removeButton}>
+              <Pressable
+                onPress={(e) => {
+                  e?.stopPropagation?.();
+                  onRemove(item);
+                }}
+                style={catSt.removeButton}
+                hitSlop={8}
+              >
                 <Text style={catSt.removeText}>✕</Text>
               </Pressable>
             </Pressable>
@@ -2992,11 +3009,7 @@ function DestinationSlider({
         </Pressable>
       </View>
 
-      <Text style={sliderSt.hintText}>
-        {lang === 'pt'
-          ? '← Biblioteca • Centro para remover • Watchlist →'
-          : '← Library • Center to remove • Watchlist →'}
-      </Text>
+     
     </View>
   );
 }
@@ -3375,17 +3388,27 @@ function SeriesDetailModal({
           <View style={detailSt.movieSection}>
             <Text style={detailSt.sectionHeading}>{t.movie}</Text>
             <Pressable onPress={toggleMovieWatched} style={detailSt.movieCardRow}>
-              <View style={{ flex: 1 }}>
+              <View style={{ flex: 1, paddingRight: 12 }}>
                 <Text style={detailSt.episodeNameText}>{item.title}</Text>
                 <Text style={detailSt.movieSubText}>
-                  {isMovieWatched ? t.watched : t.markAsWatched}
+                  {isMovieWatched ? t.watched : (lang === 'pt' ? 'Não visto' : 'Unwatched')}
                 </Text>
               </View>
 
-              {/* Bold Golden High-Contrast Eye Button */}
-              <View style={[detailSt.eyeCircle, isMovieWatched && detailSt.eyeCircleWatched]}>
-                <Text style={detailSt.eyeLargeGlyph}>
-                  {isMovieWatched ? '👁' : '👁‍🗨'}
+              {/* Clear Interactive Watch Button */}
+              <View
+                style={[
+                  detailSt.watchActionBtn,
+                  isMovieWatched ? detailSt.watchActionBtnWatched : detailSt.watchActionBtnUnwatched,
+                ]}
+              >
+                <Text style={[detailSt.watchActionIcon, isMovieWatched && detailSt.watchActionIconWatched]}>
+                  {isMovieWatched ? '✓' : '👁'}
+                </Text>
+                <Text style={[detailSt.watchActionText, isMovieWatched && detailSt.watchActionTextWatched]}>
+                  {isMovieWatched
+                    ? (lang === 'pt' ? 'Visto' : 'Watched')
+                    : (lang === 'pt' ? 'Marcar visto' : 'Mark watched')}
                 </Text>
               </View>
             </Pressable>
@@ -3451,7 +3474,7 @@ function SeriesDetailModal({
               {/* Season Header & Quick Mark Season Button */}
               {typeof selectedSeason === 'number' && (
                 <View style={detailSt.seasonHeaderRow}>
-                  <View>
+                  <View style={{ flex: 1, paddingRight: 10 }}>
                     <Text style={detailSt.seasonTitleText}>
                       {details.seasons.find((s) => s.seasonNumber === selectedSeason)?.name || `${t.season} ${selectedSeason}`}
                     </Text>
@@ -3460,7 +3483,7 @@ function SeriesDetailModal({
                       const sTotal = details.seasons.find((s) => s.seasonNumber === selectedSeason)?.episodeCount ?? seasonEpisodes[selectedSeason]?.length ?? 0;
                       const sLeft = Math.max(0, sTotal - sWatched);
                       return (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
                           <Text style={detailSt.seasonMetaText}>
                             {sWatched} / {sTotal} {t.watchedCount}
                           </Text>
@@ -3501,7 +3524,7 @@ function SeriesDetailModal({
 
               {/* Episodes List for selected season */}
               {loadingEpisodes ? (
-                <ActivityIndicator color={C.cream} style={{ marginTop: 20 }} />
+                <ActivityIndicator color={C.cream} style={{ marginTop: 24 }} />
               ) : typeof selectedSeason === 'number' && seasonEpisodes[selectedSeason] ? (
                 <View style={detailSt.episodesList}>
                   {seasonEpisodes[selectedSeason].map((ep) => {
@@ -3512,9 +3535,12 @@ function SeriesDetailModal({
                       <Pressable
                         key={epKey}
                         onPress={() => toggleEpisodeWatched(selectedSeason, ep.episodeNumber)}
-                        style={detailSt.episodeRow}
+                        style={[
+                          detailSt.episodeRow,
+                          isWatched && detailSt.episodeRowWatched,
+                        ]}
                       >
-                        <View style={{ flex: 1 }}>
+                        <View style={{ flex: 1, paddingRight: 10 }}>
                           <Text style={detailSt.episodeNumberText}>
                             {t.ep} {ep.episodeNumber}
                           </Text>
@@ -3526,10 +3552,20 @@ function SeriesDetailModal({
                           ) : null}
                         </View>
 
-                        {/* High-Contrast Large Eye Button */}
-                        <View style={[detailSt.eyeCircle, isWatched && detailSt.eyeCircleWatched]}>
-                          <Text style={detailSt.eyeLargeGlyph}>
-                            {isWatched ? '👁' : '👁‍🗨'}
+                        {/* High-Contrast Clear Watch Action Button */}
+                        <View
+                          style={[
+                            detailSt.watchActionBtn,
+                            isWatched ? detailSt.watchActionBtnWatched : detailSt.watchActionBtnUnwatched,
+                          ]}
+                        >
+                          <Text style={[detailSt.watchActionIcon, isWatched && detailSt.watchActionIconWatched]}>
+                            {isWatched ? '✓' : '👁'}
+                          </Text>
+                          <Text style={[detailSt.watchActionText, isWatched && detailSt.watchActionTextWatched]}>
+                            {isWatched
+                              ? (lang === 'pt' ? 'Visto' : 'Watched')
+                              : (lang === 'pt' ? 'Marcar visto' : 'Mark watched')}
                           </Text>
                         </View>
                       </Pressable>
@@ -4397,14 +4433,14 @@ const homeSt = StyleSheet.create({
   },
   compactPosterImg: { width: '100%', height: '100%' },
   fallbackPosterText: { color: C.bordeaux, fontSize: 24, fontWeight: '800' },
-  compactTitle: { color: C.cream, fontSize: 13, fontWeight: '600', marginTop: 6, textAlign: 'center', lineHeight: 16 },
+  compactTitle: { color: C.cream, fontSize: 14, fontWeight: '600', marginTop: 6, textAlign: 'center', lineHeight: 18 },
   epBadge: {
     position: 'absolute', bottom: 4, right: 4,
     backgroundColor: 'rgba(16,12,13,0.92)', borderRadius: 6,
-    paddingHorizontal: 7, paddingVertical: 3,
+    paddingHorizontal: 8, paddingVertical: 4,
     borderWidth: 1, borderColor: '#5C2D37',
   },
-  epBadgeText: { color: C.gold, fontSize: 12.5, fontWeight: '900', letterSpacing: 0.5 },
+  epBadgeText: { color: C.gold, fontSize: 13.5, fontWeight: '900', letterSpacing: 0.5 },
   emptySectionCard: {
     backgroundColor: C.surface,
     borderRadius: 10,
@@ -4418,7 +4454,7 @@ const homeSt = StyleSheet.create({
   },
   emptySectionText: {
     color: C.muted,
-    fontSize: 14,
+    fontSize: 15,
     fontStyle: 'italic',
     textAlign: 'center',
   },
@@ -4427,9 +4463,9 @@ const homeSt = StyleSheet.create({
 const wlSt = StyleSheet.create({
   viewModeBtn: {
     backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
-    paddingHorizontal: 11, paddingVertical: 5, borderRadius: 12,
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12,
   },
-  viewModeIcon: { color: C.gold, fontSize: 13, fontWeight: '700' },
+  viewModeIcon: { color: C.gold, fontSize: 14, fontWeight: '700' },
   gridContainer: { paddingHorizontal: 16, paddingBottom: 100, paddingTop: 10 },
   gridRow: { justifyContent: 'flex-start', gap: 12, marginBottom: 16 },
   gridCard: { width: (SCREEN_W - 32 - 24) / 3, alignItems: 'center' },
@@ -4440,13 +4476,13 @@ const wlSt = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   gridPosterImg: { width: '100%', height: '100%' },
-  gridTitle: { color: C.cream, fontSize: 13, fontWeight: '600', marginTop: 5, textAlign: 'center', lineHeight: 16 },
+  gridTitle: { color: C.cream, fontSize: 14, fontWeight: '600', marginTop: 6, textAlign: 'center', lineHeight: 18 },
   removeBadge: {
     position: 'absolute', top: 4, right: 4,
-    backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 10,
-    width: 22, height: 22, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.75)', borderRadius: 13,
+    width: 26, height: 26, alignItems: 'center', justifyContent: 'center',
   },
-  removeBadgeText: { color: C.cream, fontSize: 11, fontWeight: '800' },
+  removeBadgeText: { color: C.cream, fontSize: 13, fontWeight: '800' },
 });
 
 const catSt = StyleSheet.create({
@@ -4579,35 +4615,35 @@ const profSt = StyleSheet.create({
   },
   editProfileBtn: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(30, 21, 24, 0.85)',
-    borderWidth: 1, borderColor: C.border, paddingHorizontal: 14, paddingVertical: 7,
+    borderWidth: 1, borderColor: C.border, paddingHorizontal: 14, paddingVertical: 8,
     borderRadius: 16, marginTop: 4,
   },
-  editProfileBtnText: { color: C.gold, fontSize: 13.5, fontWeight: '700' },
-  inputLabel: { color: C.gold, fontSize: 13.5, fontWeight: '700', marginBottom: 6 },
+  editProfileBtnText: { color: C.gold, fontSize: 14.5, fontWeight: '700' },
+  inputLabel: { color: C.gold, fontSize: 14.5, fontWeight: '700', marginBottom: 6 },
   textInput: {
-    backgroundColor: C.surface2, color: C.cream, height: 46, borderRadius: 10,
+    backgroundColor: C.surface2, color: C.cream, height: 48, borderRadius: 10,
     paddingHorizontal: 12, fontSize: 16.5, borderWidth: 1, borderColor: C.border,
   },
   bioInput: { height: 78, paddingTop: 10, textAlignVertical: 'top' },
   accountEmail: { color: C.muted, fontSize: 15, textAlign: 'center' },
   signOutButton: { marginTop: 14, backgroundColor: C.bordeaux, borderRadius: 10, padding: 13, alignItems: 'center' },
-  signOutText: { color: C.cream, fontWeight: '800', fontSize: 15 },
+  signOutText: { color: C.cream, fontWeight: '800', fontSize: 15.5 },
   dashBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
     backgroundColor: C.surface,
-    borderRadius: 10,
-    paddingVertical: 10,
+    borderRadius: 12,
+    paddingVertical: 12,
     paddingHorizontal: 6,
     borderWidth: 1,
     borderColor: C.border,
-    marginTop: 4,
+    marginTop: 6,
   },
   dashItem: { flex: 1, alignItems: 'center', paddingHorizontal: 2 },
-  dashNumber: { color: C.bordeauxLight, fontSize: 18, fontWeight: '800' },
-  dashLabel: { color: C.muted, fontSize: 11.5, fontWeight: '700', marginTop: 2, textAlign: 'center' },
-  dashSep: { width: 1, height: 22, backgroundColor: C.border },
+  dashNumber: { color: C.bordeauxLight, fontSize: 19, fontWeight: '800' },
+  dashLabel: { color: C.muted, fontSize: 13, fontWeight: '700', marginTop: 3, textAlign: 'center' },
+  dashSep: { width: 1, height: 24, backgroundColor: C.border },
   sectionBar: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     marginBottom: 4,
@@ -4622,15 +4658,15 @@ const profSt = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   hPosterImg: { width: '100%', height: '100%' },
-  hTitle: { color: C.cream, fontSize: 12, fontWeight: '600', marginTop: 4, textAlign: 'center', lineHeight: 15 },
-  settingsSectionLabel: { color: C.gold, fontWeight: '700', fontSize: 15, marginTop: 16, marginBottom: 8 },
+  hTitle: { color: C.cream, fontSize: 13.5, fontWeight: '600', marginTop: 4, textAlign: 'center', lineHeight: 16 },
+  settingsSectionLabel: { color: C.gold, fontWeight: '700', fontSize: 15.5, marginTop: 16, marginBottom: 8 },
   // Settings Media Customization (Photo & Cover)
   settingsMediaRow: { flexDirection: 'row', gap: 12, marginTop: 4 },
   settingsMediaCard: {
     flex: 1, backgroundColor: C.surface2, borderRadius: 12, padding: 10,
     borderWidth: 1, borderColor: C.border, alignItems: 'center',
   },
-  settingsMediaTitle: { color: C.cream, fontSize: 13, fontWeight: '700', marginBottom: 8, textAlign: 'center' },
+  settingsMediaTitle: { color: C.cream, fontSize: 14, fontWeight: '700', marginBottom: 8, textAlign: 'center' },
   settingMediaBlock: { alignItems: 'center', width: '100%' },
   settingAvatarCircle: {
     width: 60, height: 60, borderRadius: 30, backgroundColor: C.surface,
@@ -4645,14 +4681,14 @@ const profSt = StyleSheet.create({
   },
   settingBannerImg: { width: '100%', height: '100%' },
   settingBannerEmpty: { alignItems: 'center', justifyContent: 'center' },
-  settingBannerEmptyText: { color: C.muted, fontSize: 11.5, fontWeight: '600', marginTop: 2 },
+  settingBannerEmptyText: { color: C.muted, fontSize: 13, fontWeight: '600', marginTop: 2 },
   settingBannerBtnRow: { flexDirection: 'row', alignItems: 'center', gap: 6, width: '100%' },
   settingActionBtn: {
     backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
     paddingVertical: 8, paddingHorizontal: 6, borderRadius: 8, alignItems: 'center',
     justifyContent: 'center', width: '100%',
   },
-  settingActionBtnText: { color: C.gold, fontSize: 12, fontWeight: '700' },
+  settingActionBtnText: { color: C.gold, fontSize: 13.5, fontWeight: '700' },
   settingRemoveBtn: {
     backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
     width: 30, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center',
@@ -4664,7 +4700,7 @@ const profSt = StyleSheet.create({
     paddingVertical: 11, borderRadius: 8, alignItems: 'center',
   },
   langBtnActive: { borderColor: C.bordeaux, backgroundColor: C.bordeaux },
-  langBtnText: { color: C.muted, fontWeight: '700', fontSize: 13.5 },
+  langBtnText: { color: C.muted, fontWeight: '700', fontSize: 14.5 },
   langBtnTextActive: { color: C.cream },
   versionFooter: {
     marginTop: 40,
@@ -4674,7 +4710,7 @@ const profSt = StyleSheet.create({
   },
   versionText: {
     color: C.muted,
-    fontSize: 13.5,
+    fontSize: 14,
     fontWeight: '600',
     opacity: 0.65,
     letterSpacing: 0.8,
@@ -4683,7 +4719,7 @@ const profSt = StyleSheet.create({
 
 const sliderSt = StyleSheet.create({
   container: {
-    marginVertical: 18,
+    marginVertical: 22,
     alignItems: 'center',
     width: '100%',
     position: 'relative',
@@ -4706,8 +4742,8 @@ const sliderSt = StyleSheet.create({
   },
   track: {
     width: 316,
-    height: 50,
-    borderRadius: 25,
+    height: 52,
+    borderRadius: 26,
     borderWidth: 1.5,
     flexDirection: 'row',
     alignItems: 'center',
@@ -4719,8 +4755,8 @@ const sliderSt = StyleSheet.create({
     position: 'absolute',
     top: 3,
     left: 3,
-    height: 42,
-    borderRadius: 21,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
@@ -4733,7 +4769,7 @@ const sliderSt = StyleSheet.create({
     elevation: 6,
   },
   pillText: {
-    fontSize: 12.5,
+    fontSize: 13.5,
     fontWeight: '800',
     textAlign: 'center',
   },
@@ -4745,15 +4781,15 @@ const sliderSt = StyleSheet.create({
     paddingHorizontal: 2,
   },
   slotText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
     textAlign: 'center',
   },
   hintText: {
     color: '#8A6A72',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
-    marginTop: 8,
+    marginTop: 10,
     textAlign: 'center',
   },
 });
@@ -4794,22 +4830,22 @@ const detailSt = StyleSheet.create({
   },
   overviewText: {
     color: C.muted,
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: 15.5,
+    lineHeight: 23,
     textAlign: 'center',
   },
   seeMoreBtn: {
-    marginTop: 6,
-    paddingVertical: 5,
-    paddingHorizontal: 12,
+    marginTop: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
     backgroundColor: C.surface,
     borderWidth: 1,
     borderColor: C.border,
-    borderRadius: 12,
+    borderRadius: 14,
   },
   seeMoreText: {
     color: C.gold,
-    fontSize: 12.5,
+    fontSize: 13.5,
     fontWeight: '700',
   },
   buttonRow: {
@@ -4826,58 +4862,58 @@ const detailSt = StyleSheet.create({
   actionBtnActive: {
     backgroundColor: C.bordeaux, borderColor: C.bordeaux,
   },
-  actionBtnText: { color: C.cream, fontWeight: '800', fontSize: 14.5 },
+  actionBtnText: { color: C.cream, fontWeight: '800', fontSize: 15 },
   actionBtnTextActive: { color: C.cream },
   // Movie specific view
-  movieSection: { marginTop: 10 },
+  movieSection: { marginTop: 22 },
   movieCardRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: C.surface, padding: 18, borderRadius: 12,
-    borderWidth: 1, borderColor: C.border, marginTop: 10,
+    backgroundColor: C.surface, padding: 18, borderRadius: 14,
+    borderWidth: 1.5, borderColor: C.border, marginTop: 12,
   },
-  movieSubText: { color: C.gold, fontSize: 13.5, marginTop: 4, fontWeight: '600' },
+  movieSubText: { color: C.gold, fontSize: 14.5, marginTop: 4, fontWeight: '600' },
   // Series view
-  seasonsSection: { marginTop: 10 },
+  seasonsSection: { marginTop: 24 },
   sectionHeadingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: 16,
   },
-  sectionHeading: { color: C.cream, fontSize: 20, fontWeight: '800' },
+  sectionHeading: { color: C.cream, fontSize: 22, fontWeight: '800' },
   bulkSeriesBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 14,
-    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 18,
+    borderWidth: 1.5,
     borderColor: C.border,
     backgroundColor: C.surface,
   },
   bulkSeriesBtnActive: {
     backgroundColor: C.bordeaux,
-    borderColor: C.bordeaux,
+    borderColor: C.gold,
   },
   bulkSeriesBtnText: {
     color: C.gold,
-    fontSize: 12.5,
+    fontSize: 13.5,
     fontWeight: '800',
   },
   bulkSeriesBtnTextActive: {
     color: C.cream,
   },
-  seasonPillsRow: { gap: 8, paddingBottom: 12 },
+  seasonPillsRow: { gap: 10, paddingVertical: 6, marginBottom: 16 },
   seasonPill: {
-    paddingHorizontal: 15, paddingVertical: 8, borderRadius: 18,
-    borderWidth: 1, borderColor: C.border, backgroundColor: C.surface,
+    paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20,
+    borderWidth: 1.5, borderColor: C.border, backgroundColor: C.surface,
   },
   seasonPillActive: {
     backgroundColor: C.bordeaux, borderColor: C.bordeaux,
   },
   seasonPillWatched: {
-    borderColor: C.bordeaux,
+    borderColor: C.gold,
     backgroundColor: '#261418',
   },
-  seasonPillText: { color: C.muted, fontSize: 13.5, fontWeight: '700' },
+  seasonPillText: { color: C.muted, fontSize: 14.5, fontWeight: '700' },
   seasonPillTextActive: { color: C.cream },
   seasonPillTextWatched: { color: C.gold },
   seasonHeaderRow: {
@@ -4885,78 +4921,105 @@ const detailSt = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: C.surface,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 10,
-    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1.5,
     borderColor: C.border,
-    marginTop: 8,
-    marginBottom: 10,
+    marginTop: 12,
+    marginBottom: 16,
   },
   seasonTitleText: {
     color: C.cream,
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '800',
   },
   seasonMetaText: {
     color: C.gold,
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '800',
     marginTop: 2,
   },
   seasonMetaRemaining: {
     color: '#E0A868',
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
     marginTop: 2,
   },
   seasonMetaCompleted: {
     color: '#68D391',
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '800',
     marginTop: 2,
   },
   seasonToggleBtn: {
-    paddingHorizontal: 13,
-    paddingVertical: 7,
-    borderRadius: 8,
-    borderWidth: 1,
+    paddingHorizontal: 15,
+    paddingVertical: 9,
+    borderRadius: 10,
+    borderWidth: 1.5,
     borderColor: C.border,
     backgroundColor: C.surface2,
   },
   seasonToggleBtnActive: {
     backgroundColor: C.bordeaux,
-    borderColor: C.bordeaux,
+    borderColor: C.gold,
   },
   seasonToggleBtnText: {
     color: C.cream,
-    fontSize: 12.5,
+    fontSize: 13.5,
     fontWeight: '700',
   },
   seasonToggleBtnTextActive: {
     color: C.cream,
     fontWeight: '800',
   },
-  episodesList: { marginTop: 8, gap: 10 },
+  episodesList: { marginTop: 12, gap: 14 },
   episodeRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: C.surface, padding: 14, borderRadius: 10,
-    borderWidth: 1, borderColor: C.border,
+    backgroundColor: C.surface, padding: 16, borderRadius: 14,
+    borderWidth: 1.5, borderColor: C.border,
   },
-  episodeNumberText: { color: C.gold, fontSize: 12.5, fontWeight: '800', marginBottom: 2 },
-  episodeNameText: { color: C.cream, fontSize: 16, fontWeight: '700' },
-  episodeOverviewText: { color: C.muted, fontSize: 13, lineHeight: 18, marginTop: 4 },
-  // Eye icon - High visibility badge
-  eyeCircle: {
-    width: 46, height: 46, borderRadius: 23,
-    backgroundColor: C.surface2, borderWidth: 1.5, borderColor: C.border,
-    alignItems: 'center', justifyContent: 'center', marginLeft: 12,
+  episodeRowWatched: {
+    borderColor: '#54232E',
+    backgroundColor: 'rgba(38, 20, 24, 0.95)',
   },
-  eyeCircleWatched: {
-    backgroundColor: C.bordeaux, borderColor: C.gold,
+  episodeNumberText: { color: C.gold, fontSize: 13.5, fontWeight: '800', marginBottom: 3 },
+  episodeNameText: { color: C.cream, fontSize: 17, fontWeight: '700' },
+  episodeOverviewText: { color: C.muted, fontSize: 14, lineHeight: 20, marginTop: 4 },
+  // Interactive Episode / Movie Watch Toggle Button
+  watchActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 9,
+    paddingHorizontal: 13,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    marginLeft: 12,
   },
-  eyeLargeGlyph: {
-    fontSize: 22,
+  watchActionBtnUnwatched: {
+    backgroundColor: C.surface2,
+    borderColor: '#7A3546',
+  },
+  watchActionBtnWatched: {
+    backgroundColor: C.bordeaux,
+    borderColor: C.gold,
+  },
+  watchActionIcon: {
+    fontSize: 15,
+    color: C.gold,
+    fontWeight: '800',
+  },
+  watchActionIconWatched: {
+    color: C.cream,
+  },
+  watchActionText: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: C.gold,
+  },
+  watchActionTextWatched: {
+    color: C.cream,
   },
 });
 
@@ -5014,7 +5077,7 @@ const styles = StyleSheet.create({
   filters: { paddingHorizontal: 22, gap: 6 },
   chip: { borderWidth: 1, borderColor: C.border, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 6 },
   chipActive: { backgroundColor: C.bordeaux, borderColor: C.bordeaux },
-  chipText: { color: C.muted, fontSize: 13.5, fontWeight: '600' },
+  chipText: { color: C.muted, fontSize: 14.5, fontWeight: '600' },
   chipTextActive: { color: C.cream },
   list: { paddingHorizontal: 22, paddingBottom: 100 },
   seriesRow: {
@@ -5024,11 +5087,11 @@ const styles = StyleSheet.create({
   poster: { height: 60, width: 42, borderRadius: 6, backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
   posterText: { color: C.bordeaux, fontSize: 18, fontWeight: '800' },
   rowBody: { flex: 1, marginLeft: 14 },
-  rowTitle: { color: C.cream, fontSize: 17, fontWeight: '700' },
-  rowMeta: { color: C.muted, fontSize: 13, marginTop: 2 },
-  rowProgress: { color: C.gold, fontSize: 14.5, fontWeight: '800', marginTop: 3 },
-  rowProgressRemaining: { color: '#E0A868', fontSize: 14.5, fontWeight: '700', marginTop: 3 },
-  rowProgressCompleted: { color: '#68D391', fontSize: 14.5, fontWeight: '800', marginTop: 3 },
+  rowTitle: { color: C.cream, fontSize: 17.5, fontWeight: '700' },
+  rowMeta: { color: C.muted, fontSize: 14.5, marginTop: 3 },
+  rowProgress: { color: C.gold, fontSize: 15.5, fontWeight: '800', marginTop: 3 },
+  rowProgressRemaining: { color: '#E0A868', fontSize: 15.5, fontWeight: '700', marginTop: 3 },
+  rowProgressCompleted: { color: '#68D391', fontSize: 15.5, fontWeight: '800', marginTop: 3 },
   chevron: { color: C.border, fontSize: 22 },
   tabbar: {
     backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.border,
@@ -5042,7 +5105,7 @@ const styles = StyleSheet.create({
   tab: { alignItems: 'center', minWidth: 60, flex: 1, paddingVertical: 2 },
   tabIcon: { color: C.muted, fontSize: 22 },
   tabIconActive: { color: C.bordeaux, transform: [{ scale: 1.15 }] },
-  tabLabel: { color: C.muted, fontSize: 11.5, marginTop: 2 },
+  tabLabel: { color: C.muted, fontSize: 13, marginTop: 2 },
   tabLabelActive: { color: C.bordeaux, fontWeight: '800' },
   back: { color: C.gold, fontSize: 17 },
   primaryButton: { backgroundColor: C.bordeaux, padding: 14, borderRadius: 11, alignItems: 'center', marginTop: 20 },
