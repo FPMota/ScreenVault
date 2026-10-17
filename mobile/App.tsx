@@ -64,6 +64,7 @@ type PersonalData = {
 type Tab = 'home' | 'library' | 'watchlist' | 'profile';
 
 const TABS: Tab[] = ['home', 'library', 'watchlist', 'profile'];
+const USE_NATIVE_DRIVER = Platform.OS !== 'web';
 const STORAGE_KEY = '@screenvault/personal-data-v1';
 const LIBRARY_KEY = '@screenvault/library-v1';
 const WATCHLIST_KEY = '@screenvault/watchlist-v1';
@@ -348,19 +349,40 @@ export default function App() {
           posterPath: r.poster_path ?? undefined,
           lastWatched: r.last_watched ? Number(r.last_watched) : undefined,
         }));
-        const cp = Object.fromEntries(
-          data.map((r) => [
-            r.title,
-            {
+        setLibrary(cl);
+        setPersonal((cur) => {
+          const next = { ...cur };
+          for (const r of data) {
+            const existing = cur[r.title] || {};
+            let epList = existing.watchedEpList;
+            let reviewText = r.review ?? undefined;
+
+            if (r.review && typeof r.review === 'string' && r.review.startsWith('{"eps":')) {
+              try {
+                const parsed = JSON.parse(r.review);
+                if (Array.isArray(parsed.eps) && parsed.eps.length > 0) {
+                  epList = parsed.eps;
+                }
+                reviewText = parsed.text || undefined;
+              } catch {}
+            }
+
+            if (!epList && r.media_type === 'movie' && (r.watched_episodes ?? 0) > 0) {
+              epList = ['MOVIE'];
+            }
+
+            next[r.title] = {
+              ...existing,
               watchedEpisodes: r.watched_episodes ?? 0,
               rating: r.rating ?? undefined,
-              review: r.review ?? undefined,
+              review: reviewText,
               lastWatched: r.last_watched ? Number(r.last_watched) : undefined,
-            },
-          ]),
-        );
-        setLibrary(cl);
-        setPersonal((cur) => ({ ...cur, ...cp }));
+              watchedEpList: epList,
+            };
+          }
+          AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => undefined);
+          return next;
+        });
         AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(cl)).catch(() => undefined);
       }, (err: any) => {
         console.warn('Network notice fetching series_entries:', err?.message || String(err));
@@ -421,13 +443,13 @@ export default function App() {
         toValue: 0,
         duration: 260,
         easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
+        useNativeDriver: USE_NATIVE_DRIVER,
       }),
       Animated.timing(tabOpacity, {
         toValue: 1,
         duration: 220,
         easing: Easing.out(Easing.quad),
-        useNativeDriver: true,
+        useNativeDriver: USE_NATIVE_DRIVER,
       }),
     ]).start();
   };
@@ -465,7 +487,7 @@ export default function App() {
             toValue: 0,
             duration: 220,
             easing: Easing.out(Easing.cubic),
-            useNativeDriver: true,
+            useNativeDriver: USE_NATIVE_DRIVER,
           }).start();
         },
       }),
@@ -634,20 +656,40 @@ export default function App() {
                     posterPath: r.poster_path ?? undefined,
                     lastWatched: r.last_watched ? Number(r.last_watched) : undefined,
                   }));
-                  const cp = Object.fromEntries(
-                    data.map((r) => [
-                      r.title,
-                      {
+                  setLibrary(cl);
+                  setPersonal((cur) => {
+                    const next = { ...cur };
+                    for (const r of data) {
+                      const existing = cur[r.title] || {};
+                      let epList = existing.watchedEpList;
+                      let reviewText = r.review ?? undefined;
+
+                      if (r.review && typeof r.review === 'string' && r.review.startsWith('{"eps":')) {
+                        try {
+                          const parsed = JSON.parse(r.review);
+                          if (Array.isArray(parsed.eps) && parsed.eps.length > 0) {
+                            epList = parsed.eps;
+                          }
+                          reviewText = parsed.text || undefined;
+                        } catch {}
+                      }
+
+                      if (!epList && r.media_type === 'movie' && (r.watched_episodes ?? 0) > 0) {
+                        epList = ['MOVIE'];
+                      }
+
+                      next[r.title] = {
+                        ...existing,
                         watchedEpisodes: r.watched_episodes ?? 0,
                         rating: r.rating ?? undefined,
-                        review: r.review ?? undefined,
+                        review: reviewText,
                         lastWatched: r.last_watched ? Number(r.last_watched) : undefined,
-                      },
-                    ]),
-                  );
-
-                  setLibrary(cl);
-                  setPersonal((cur) => ({ ...cur, ...cp }));
+                        watchedEpList: epList,
+                      };
+                    }
+                    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => undefined);
+                    return next;
+                  });
                   AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(cl)).catch(() => undefined);
                 }
               }),
@@ -864,29 +906,67 @@ export default function App() {
 
   const syncSeries = (series: Series, entry: PersonalData) => {
     if (!supabase || !session) return;
+    const watched = entry.watchedEpisodes !== undefined ? entry.watchedEpisodes : series.watchedEpisodes;
+    const isDone = series.totalEpisodes > 0 && watched >= series.totalEpisodes;
+    const newCollection: Collection = isDone
+      ? 'up_to_date'
+      : watched > 0
+      ? 'watching'
+      : series.collection;
+
+    let reviewPayload = entry.review ?? null;
+    const epList = entry.watchedEpList ?? personal[series.title]?.watchedEpList;
+    if (epList && epList.length > 0) {
+      reviewPayload = JSON.stringify({ eps: epList, text: entry.review || '' });
+    }
+
     supabase.from('series_entries').upsert({
       user_id: session.user.id,
       media_type: series.mediaType ?? 'series',
       tmdb_id: series.tmdbId ?? null,
       poster_path: series.posterPath ?? null,
       title: series.title,
-      collection: series.collection,
-      watched_episodes: entry.watchedEpisodes ?? series.watchedEpisodes,
+      collection: newCollection,
+      watched_episodes: watched,
       total_episodes: series.totalEpisodes,
       rating: entry.rating ?? null,
-      review: entry.review ?? null,
+      review: reviewPayload,
       last_watched: entry.lastWatched ?? null,
     }, { onConflict: 'user_id,media_type,title' }).then(() => undefined);
   };
 
-  const update = (title: string, changes: PersonalData) =>
+  const update = (title: string, changes: PersonalData) => {
+    let updatedSeries: Series | undefined;
+
     setPersonal((cur) => {
-      const next = { ...cur, [title]: { ...cur[title], ...changes } };
+      const existing = cur[title] || {};
+      const nextItem = { ...existing, ...changes };
+      const next = { ...cur, [title]: nextItem };
       AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => undefined);
-      const series = library.find((s) => s.title === title);
-      if (series) syncSeries(series, next[title]);
       return next;
     });
+
+    setLibrary((cur) => {
+      const match = cur.find(
+        (s) => s.title === title || s.title.trim().toLowerCase() === title.trim().toLowerCase()
+      );
+      if (!match) return cur;
+      const watched = changes.watchedEpisodes !== undefined ? changes.watchedEpisodes : match.watchedEpisodes;
+      const isDone = match.totalEpisodes > 0 && watched >= match.totalEpisodes;
+      updatedSeries = {
+        ...match,
+        watchedEpisodes: watched,
+        collection: isDone ? 'up_to_date' : watched > 0 ? 'watching' : match.collection,
+        lastWatched: changes.lastWatched ?? match.lastWatched,
+      };
+      const next = cur.map((s) => (s === match ? updatedSeries! : s));
+      AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(next)).catch(() => undefined);
+      if (updatedSeries) {
+        syncSeries(updatedSeries, changes);
+      }
+      return next;
+    });
+  };
 
   const addFromCatalog = async (item: TmdbResult) => {
     let totalEpisodes = item.totalEpisodes ?? (item.mediaType === 'movie' ? 1 : 0);
@@ -1271,31 +1351,39 @@ export default function App() {
   return (
     <View style={styles.safe}>
       <StatusBar style="light" />
-      {selected ? (
-        <SeriesDetailModal
-          item={selected}
-          library={library}
-          watchlist={watchlist}
-          personal={personal[selected.title] ?? {}}
-          progress={'collection' in selected ? progress(selected) : 0}
-          onClose={() => setSelected(null)}
-          onAddToLibrary={addFromCatalog}
-          onRemoveFromLibrary={() => {
-            // Keep modal open, just remove from library state
-            const tid = 'tmdbId' in selected ? selected.tmdbId : ('id' in selected ? selected.id : undefined);
-            removeFromLibrary(selected.title, tid);
-          }}
-          onAddToWatchlist={(tmdbItem) => {
-            addToWatchlist(tmdbItem);
-          }}
-          onRemoveFromWatchlist={(tmdbItem) => {
-            // Keep modal open, just remove from watchlist state
-            removeFromWatchlist(tmdbItem);
-          }}
-          onUpdatePersonal={(changes) => update(selected.title, changes)}
-          lang={lang}
-        />
-      ) : (
+      {selected ? (() => {
+        const selectedTmdbId = 'tmdbId' in selected ? selected.tmdbId : ('id' in selected ? selected.id : undefined);
+        const libMatch = library.find(
+          (s) =>
+            (selectedTmdbId && s.tmdbId === selectedTmdbId) ||
+            (s.title && s.title.trim().toLowerCase() === selected.title.trim().toLowerCase())
+        );
+        const canonicalTitle = libMatch ? libMatch.title : selected.title;
+
+        return (
+          <SeriesDetailModal
+            item={selected}
+            library={library}
+            watchlist={watchlist}
+            personal={personal[canonicalTitle] ?? personal[selected.title] ?? {}}
+            progress={'collection' in selected ? progress(selected) : (libMatch ? progress(libMatch) : 0)}
+            onClose={() => setSelected(null)}
+            onAddToLibrary={addFromCatalog}
+            onRemoveFromLibrary={() => {
+              const tid = 'tmdbId' in selected ? selected.tmdbId : ('id' in selected ? selected.id : undefined);
+              removeFromLibrary(canonicalTitle, tid);
+            }}
+            onAddToWatchlist={(tmdbItem) => {
+              addToWatchlist(tmdbItem);
+            }}
+            onRemoveFromWatchlist={(tmdbItem) => {
+              removeFromWatchlist(tmdbItem);
+            }}
+            onUpdatePersonal={(changes) => update(canonicalTitle, changes)}
+            lang={lang}
+          />
+        );
+      })() : (
         <>
           {tabContent}
           <View style={{ backgroundColor: C.surface }}>
@@ -1556,11 +1644,9 @@ function Home({
       <View style={homeSt.topBar}>
         <View>
           <Text style={styles.wordmark}>SCREENVAULT</Text>
-          <View style={homeSt.titleWithIcon}>
-            <Image source={require('./assets/icon.png')} style={homeSt.titleIcon} />
-            <Text style={[styles.pageTitle, { marginTop: 0 }]}>{t.home}</Text>
-          </View>
+          <Text style={[styles.pageTitle, { marginTop: 0 }]}>{t.home}</Text>
         </View>
+        <Image source={require('./assets/icon.png')} style={homeSt.titleIcon} />
       </View>
 
       <ScrollView
@@ -2934,7 +3020,7 @@ function DestinationSlider({
       toValue: 1,
       duration: 850,
       easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
+      useNativeDriver: USE_NATIVE_DRIVER,
     }).start();
   };
 
@@ -2944,7 +3030,7 @@ function DestinationSlider({
         toValue: getTargetX(state),
         friction: 7,
         tension: 65,
-        useNativeDriver: true,
+        useNativeDriver: USE_NATIVE_DRIVER,
       }).start();
     }
   }, [state, slotWidth]);
@@ -2956,7 +3042,7 @@ function DestinationSlider({
       toValue: nextTarget,
       friction: 7,
       tension: 65,
-      useNativeDriver: true,
+      useNativeDriver: USE_NATIVE_DRIVER,
     }).start();
 
     if (state !== dest) {
@@ -3022,7 +3108,7 @@ function DestinationSlider({
             toValue: getTargetX(state),
             friction: 7,
             tension: 65,
-            useNativeDriver: true,
+            useNativeDriver: USE_NATIVE_DRIVER,
           }).start();
         },
       }),
@@ -3308,6 +3394,9 @@ function SeriesDetailModal({
 
   // Toggle episode watched for series
   const toggleEpisodeWatched = (seasonNum: number, epNum: number) => {
+    if (destinationState !== 'library') {
+      handleDestinationChange('library');
+    }
     const epKey = `S${seasonNum}E${epNum}`;
     const nextList = new Set(watchedEpSet);
     if (nextList.has(epKey)) {
@@ -3347,6 +3436,9 @@ function SeriesDetailModal({
 
   // Toggle all episodes in a season
   const toggleSeasonWatched = (sNum: number) => {
+    if (destinationState !== 'library') {
+      handleDestinationChange('library');
+    }
     const sInfo = details.seasons.find((s) => s.seasonNumber === sNum);
     const eps = seasonEpisodes[sNum];
     const count = eps?.length ?? sInfo?.episodeCount ?? 0;
@@ -3398,6 +3490,9 @@ function SeriesDetailModal({
 
   // Toggle all episodes across all seasons
   const toggleEntireSeriesWatched = () => {
+    if (destinationState !== 'library') {
+      handleDestinationChange('library');
+    }
     const nextList = new Set(watchedEpSet);
     const alreadyWatched = isSeriesFullyWatched;
 
@@ -3436,6 +3531,9 @@ function SeriesDetailModal({
   // Toggle watched for Movie
   const isMovieWatched = watchedEpSet.has('MOVIE');
   const toggleMovieWatched = () => {
+    if (destinationState !== 'library') {
+      handleDestinationChange('library');
+    }
     const nextList = new Set(watchedEpSet);
     if (nextList.has('MOVIE')) {
       nextList.delete('MOVIE');
@@ -4355,13 +4453,13 @@ function LoadingScreen({ lang }: { lang: Language }) {
             toValue: 1.05,
             duration: 850,
             easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
+            useNativeDriver: USE_NATIVE_DRIVER,
           }),
           Animated.timing(opacityAnim, {
             toValue: 1,
             duration: 850,
             easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
+            useNativeDriver: USE_NATIVE_DRIVER,
           }),
         ]),
         Animated.parallel([
@@ -4369,13 +4467,13 @@ function LoadingScreen({ lang }: { lang: Language }) {
             toValue: 0.9,
             duration: 850,
             easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
+            useNativeDriver: USE_NATIVE_DRIVER,
           }),
           Animated.timing(opacityAnim, {
             toValue: 0.55,
             duration: 850,
             easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
+            useNativeDriver: USE_NATIVE_DRIVER,
           }),
         ]),
       ]),
@@ -4606,7 +4704,7 @@ const homeSt = StyleSheet.create({
     paddingTop: 4,
   },
   titleWithIcon: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
-  titleIcon: { width: 34, height: 34, borderRadius: 8, borderWidth: 1, borderColor: C.border },
+  titleIcon: { width: 34, height: 34, borderRadius: 8, borderWidth: 1, borderColor: C.border, marginBottom: 4 },
   searchOutlineBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     borderWidth: 1.5, borderColor: C.bordeaux, backgroundColor: 'transparent',
