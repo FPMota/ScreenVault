@@ -334,7 +334,7 @@ export default function App() {
       .order('title')
       .then(({ data, error }) => {
         if (error) {
-          console.error('Error fetching series_entries from Supabase:', error);
+          console.warn('Supabase series_entries fetch notice:', error.message || error.code || String(error));
           return;
         }
         if (!data) return;
@@ -362,6 +362,8 @@ export default function App() {
         setLibrary(cl);
         setPersonal((cur) => ({ ...cur, ...cp }));
         AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(cl)).catch(() => undefined);
+      }, (err: any) => {
+        console.warn('Network notice fetching series_entries:', err?.message || String(err));
       });
   };
 
@@ -375,7 +377,7 @@ export default function App() {
       .order('created_at', { ascending: false })
       .then(({ data, error }) => {
         if (error) {
-          console.error('Error fetching watchlist from Supabase:', error);
+          console.warn('Supabase watchlist fetch notice:', error.message || error.code || String(error));
           return;
         }
         if (!data) return;
@@ -388,6 +390,8 @@ export default function App() {
         }));
         setWatchlist(items);
         AsyncStorage.setItem(WATCHLIST_KEY, JSON.stringify(items)).catch(() => undefined);
+      }, (err: any) => {
+        console.warn('Network notice fetching watchlist:', err?.message || String(err));
       });
   };
 
@@ -569,9 +573,9 @@ export default function App() {
             // Fetch profile
             supabase
               .from('profiles')
-              .select('username, bio, avatar_url, banner_url')
+              .select('*')
               .eq('id', uid)
-              .single()
+              .maybeSingle()
               .then(({ data, error }) => {
                 if (!error && data && isMounted) {
                   if (data.username) {
@@ -689,8 +693,8 @@ export default function App() {
   useEffect(() => {
     if (!supabase || !session) return;
 
-    fetchLibrary();
-    fetchWatchlist();
+    fetchLibrary(session.user.id);
+    fetchWatchlist(session.user.id);
 
     // Check user_metadata for avatar & banner
     if (session.user.user_metadata?.avatar_url) {
@@ -706,7 +710,7 @@ export default function App() {
       .then(({ data }) => { if (data?.signedUrl) setAvatar(data.signedUrl); })
       .catch(() => undefined);
 
-    supabase.from('profiles').select('username, bio, avatar_url, banner_url').eq('id', session.user.id).single()
+    supabase.from('profiles').select('*').eq('id', session.user.id).maybeSingle()
       .then(({ data, error }) => {
         if (!error && data) {
           if (data.username) {
@@ -777,7 +781,7 @@ export default function App() {
           filter: `user_id=eq.${session.user.id}`,
         },
         () => {
-          fetchWatchlist();
+          fetchWatchlist(session.user.id);
         },
       )
       .subscribe();
@@ -794,7 +798,7 @@ export default function App() {
           filter: `user_id=eq.${session.user.id}`,
         },
         () => {
-          fetchLibrary();
+          fetchLibrary(session.user.id);
         },
       )
       .subscribe();
@@ -804,8 +808,8 @@ export default function App() {
     if (Platform.OS === 'web' && typeof document !== 'undefined') {
       const handleVisibilityChange = () => {
         if (!document.hidden) {
-          fetchLibrary();
-          fetchWatchlist();
+          fetchLibrary(session.user.id);
+          fetchWatchlist(session.user.id);
         }
       };
       document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -814,8 +818,8 @@ export default function App() {
 
     const appStateSub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
-        fetchLibrary();
-        fetchWatchlist();
+        fetchLibrary(session.user.id);
+        fetchWatchlist(session.user.id);
       }
     });
 
