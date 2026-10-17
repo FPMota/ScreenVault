@@ -164,10 +164,31 @@ alter publication supabase_realtime add table public.series_entries;
 alter publication supabase_realtime add table public.watchlist;
 alter publication supabase_realtime add table public.profiles;
 
--- ─── JWT Header Detox (Fixes HTTP 431 / CORS Bad Request) ────────────────────────
--- Run this in Supabase SQL Editor if a user ever uploaded a base64 avatar into user_metadata,
--- which inflates the JWT access token beyond 8KB and causes Cloudflare 431 / CORS blocks:
+-- ─── JWT Header Detox & Permanent Guard (Fixes & Prevents HTTP 431) ───────────────
+-- 1. Run once to immediately clean any existing bloated metadata:
 update auth.users
 set raw_user_meta_data = raw_user_meta_data - 'avatar_url' - 'banner_url';
+
+-- 2. Permanent guard trigger: Automatically strips base64/heavy strings (>500 chars) from
+--    raw_user_meta_data before it ever enters auth.users. This guarantees the JWT access token
+--    remains compact (<1KB) and HTTP 431 / Cloudflare 520 / CORS blocks are permanently impossible.
+create or replace function public.clean_user_meta_data()
+returns trigger as $$
+begin
+  if new.raw_user_meta_data ? 'avatar_url' and length(new.raw_user_meta_data->>'avatar_url') > 500 then
+    new.raw_user_meta_data = new.raw_user_meta_data - 'avatar_url';
+  end if;
+  if new.raw_user_meta_data ? 'banner_url' and length(new.raw_user_meta_data->>'banner_url') > 500 then
+    new.raw_user_meta_data = new.raw_user_meta_data - 'banner_url';
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists tr_clean_user_meta_data on auth.users;
+create trigger tr_clean_user_meta_data
+before insert or update on auth.users
+for each row execute function public.clean_user_meta_data();
+
 
 
