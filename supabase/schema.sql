@@ -164,3 +164,10 @@ alter publication supabase_realtime add table public.series_entries;
 alter publication supabase_realtime add table public.watchlist;
 alter publication supabase_realtime add table public.profiles;
 
+-- ─── JWT Header Detox (Fixes HTTP 431 / CORS Bad Request) ────────────────────────
+-- Run this in Supabase SQL Editor if a user ever uploaded a base64 avatar into user_metadata,
+-- which inflates the JWT access token beyond 8KB and causes Cloudflare 431 / CORS blocks:
+update auth.users
+set raw_user_meta_data = raw_user_meta_data - 'avatar_url' - 'banner_url';
+
+

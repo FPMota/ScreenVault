@@ -565,6 +565,25 @@ export default function App() {
           return;
         }
 
+        // Auto-detox: if user_metadata is contaminated with large base64 avatar/banner, strip it!
+        const meta = currentSession.user.user_metadata;
+        if (
+          (typeof meta?.avatar_url === 'string' && meta.avatar_url.length > 500) ||
+          (typeof meta?.banner_url === 'string' && meta.banner_url.length > 500)
+        ) {
+          try {
+            await supabase.auth.updateUser({
+              data: { avatar_url: null, banner_url: null },
+            });
+            const { data: refreshed } = await supabase.auth.refreshSession();
+            if (refreshed?.session && isMounted) {
+              setSession(refreshed.session);
+            }
+          } catch {
+            // Handled via SQL cleanup if header too large
+          }
+        }
+
         const uid = currentSession.user.id;
 
         // 3. User is signed in -> Pre-load Profile, Library, and Watchlist from Supabase
@@ -695,16 +714,6 @@ export default function App() {
 
     fetchLibrary(session.user.id);
     fetchWatchlist(session.user.id);
-
-    // Check user_metadata for avatar & banner
-    if (session.user.user_metadata?.avatar_url) {
-      setAvatar(session.user.user_metadata.avatar_url);
-      AsyncStorage.setItem(AVATAR_KEY, session.user.user_metadata.avatar_url).catch(() => undefined);
-    }
-    if (session.user.user_metadata?.banner_url) {
-      setBanner(session.user.user_metadata.banner_url);
-      AsyncStorage.setItem(BANNER_KEY, session.user.user_metadata.banner_url).catch(() => undefined);
-    }
 
     supabase.storage.from('avatars').createSignedUrl(`${session.user.id}/avatar`, 3600)
       .then(({ data }) => { if (data?.signedUrl) setAvatar(data.signedUrl); })
@@ -971,7 +980,24 @@ export default function App() {
         }
         return result.error.message;
       }
-      if (result.data?.session?.user?.id) {
+      if (result.data?.session?.user) {
+        const meta = result.data.session.user.user_metadata;
+        if (
+          (typeof meta?.avatar_url === 'string' && meta.avatar_url.length > 500) ||
+          (typeof meta?.banner_url === 'string' && meta.banner_url.length > 500)
+        ) {
+          try {
+            await supabase.auth.updateUser({
+              data: { avatar_url: null, banner_url: null },
+            });
+            const { data: refreshed } = await supabase.auth.refreshSession();
+            if (refreshed?.session) {
+              setSession(refreshed.session);
+            }
+          } catch {
+            // Handled via SQL cleanup if header too large
+          }
+        }
         fetchLibrary(result.data.session.user.id);
         fetchWatchlist(result.data.session.user.id);
       }
@@ -1051,7 +1077,7 @@ export default function App() {
     AsyncStorage.setItem(AVATAR_KEY, uri).catch(() => undefined);
     if (!supabase || !session) return;
 
-    // 1. Persist directly to profiles table so all devices (mobile + PC) sync the photo
+    // Persist directly to profiles table so all devices sync the photo
     try {
       await supabase.from('profiles').upsert({
         id: session.user.id,
@@ -1060,14 +1086,7 @@ export default function App() {
       });
     } catch { /* ignore */ }
 
-    // 2. Also persist to user_metadata in Supabase Auth
-    try {
-      await supabase.auth.updateUser({
-        data: { avatar_url: uri },
-      });
-    } catch { /* ignore */ }
-
-    // 3. Try to upload to storage bucket
+    // Upload to avatars storage bucket if available
     try {
       const response = await fetch(uri);
       const blob = await response.blob();
@@ -1092,12 +1111,6 @@ export default function App() {
     if (!supabase || !session) return;
 
     try {
-      await supabase.auth.updateUser({
-        data: { banner_url: uri },
-      });
-    } catch { /* ignore */ }
-
-    try {
       await supabase.from('profiles').upsert({
         id: session.user.id,
         banner_url: uri,
@@ -1110,12 +1123,6 @@ export default function App() {
     setBanner(null);
     AsyncStorage.removeItem(BANNER_KEY).catch(() => undefined);
     if (!supabase || !session) return;
-
-    try {
-      await supabase.auth.updateUser({
-        data: { banner_url: null },
-      });
-    } catch { /* ignore */ }
 
     try {
       await supabase.from('profiles').upsert({
