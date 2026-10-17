@@ -841,6 +841,27 @@ export default function App() {
     };
   }, [session]);
 
+  // Pre-fetch episode counts for series in watchlist that don't have totalEpisodes
+  useEffect(() => {
+    watchlist.forEach((w) => {
+      if (w.mediaType === 'series' && (!w.totalEpisodes || w.totalEpisodes === 0) && w.id) {
+        fetchItemDetails(w.id, 'series', lang === 'pt' ? 'pt-PT' : 'en-US')
+          .then((res) => {
+            if (res.totalEpisodes > 0) {
+              setWatchlist((cur) =>
+                cur.map((item) =>
+                  item.id === w.id && item.mediaType === w.mediaType && (!item.totalEpisodes || item.totalEpisodes === 0)
+                    ? { ...item, totalEpisodes: res.totalEpisodes }
+                    : item
+                )
+              );
+            }
+          })
+          .catch(() => undefined);
+      }
+    });
+  }, [watchlist.length, lang]);
+
   const syncSeries = (series: Series, entry: PersonalData) => {
     if (!supabase || !session) return;
     supabase.from('series_entries').upsert({
@@ -923,13 +944,23 @@ export default function App() {
     });
   };
 
-  const addToWatchlist = (item: TmdbResult) => {
+  const addToWatchlist = async (item: TmdbResult) => {
     // If it's already in library, remove from library
     removeFromLibrary(item.title, item.id);
 
+    let totalEpisodes = item.totalEpisodes;
+    if (item.mediaType === 'series' && (!totalEpisodes || totalEpisodes === 0) && item.id) {
+      try {
+        const details = await fetchItemDetails(item.id, item.mediaType, lang === 'pt' ? 'pt-PT' : 'en-US');
+        if (details.totalEpisodes > 0) totalEpisodes = details.totalEpisodes;
+      } catch {}
+    }
+
+    const itemWithEps: TmdbResult = totalEpisodes ? { ...item, totalEpisodes } : item;
+
     setWatchlist((cur) => {
       if (cur.some((w) => w.id === item.id && w.mediaType === item.mediaType)) return cur;
-      const next = [item, ...cur];
+      const next = [itemWithEps, ...cur];
       AsyncStorage.setItem(WATCHLIST_KEY, JSON.stringify(next)).catch(() => undefined);
       if (supabase && session) {
         supabase.from('watchlist').upsert({
@@ -939,7 +970,7 @@ export default function App() {
           title: item.title,
           poster_path: item.posterPath ?? null,
           overview: item.overview ?? null,
-        }, { onConflict: 'user_id,tmdb_id,media_type' }).then(() => undefined);
+        }, { onConflict: 'user_id,tmdb_id,media_type' }).then(() => undefined, () => undefined);
       }
       return next;
     });
@@ -1202,6 +1233,7 @@ export default function App() {
         <Watchlist
           items={watchlist}
           library={library}
+          progress={progress}
           open={setSelected}
           onRemove={removeFromWatchlist}
           onAddToWatchlist={addToWatchlist}
@@ -1552,28 +1584,36 @@ function Home({
             contentContainerStyle={homeSt.continueWatchingRow}
             style={{ marginHorizontal: -22 }}
           >
-            {continueWatching.map((s) => (
-              <Pressable
-                key={`${s.mediaType}-${s.tmdbId ?? s.title}`}
-                onPress={() => open(s)}
-                style={homeSt.compactCard}
-              >
-                <View style={homeSt.compactPoster}>
-                  {s.posterPath ? (
-                    <Image source={{ uri: posterUrl(s.posterPath) }} style={homeSt.compactPosterImg} resizeMode="cover" />
-                  ) : (
-                    <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
-                  )}
-                  {/* Subtle episode progress badge */}
-                  <View style={homeSt.epBadge}>
-                    <Text style={homeSt.epBadgeText}>
-                      {progress(s)}/{s.totalEpisodes}
-                    </Text>
+            {continueWatching.map((s) => {
+              const watched = progress(s);
+              const isMovie = s.mediaType === 'movie';
+              const epSub = isMovie
+                ? (watched >= 1 ? (lang === 'pt' ? 'Filme · Visto' : 'Movie · Watched') : (lang === 'pt' ? 'Filme' : 'Movie'))
+                : `${watched}/${s.totalEpisodes} ${lang === 'pt' ? 'eps' : 'eps'}`;
+              const badgeText = isMovie ? (lang === 'pt' ? 'Filme' : 'Movie') : `${watched}/${s.totalEpisodes}`;
+
+              return (
+                <Pressable
+                  key={`${s.mediaType}-${s.tmdbId ?? s.title}`}
+                  onPress={() => open(s)}
+                  style={homeSt.compactCard}
+                >
+                  <View style={homeSt.compactPoster}>
+                    {s.posterPath ? (
+                      <Image source={{ uri: posterUrl(s.posterPath) }} style={homeSt.compactPosterImg} resizeMode="cover" />
+                    ) : (
+                      <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
+                    )}
+                    {/* Subtle episode progress badge */}
+                    <View style={homeSt.epBadge}>
+                      <Text style={homeSt.epBadgeText}>{badgeText}</Text>
+                    </View>
                   </View>
-                </View>
-                <Text style={homeSt.compactTitle} numberOfLines={2}>{s.title}</Text>
-              </Pressable>
-            ))}
+                  <Text style={homeSt.compactTitle} numberOfLines={1}>{s.title}</Text>
+                  <Text style={homeSt.compactSubtitle}>{epSub}</Text>
+                </Pressable>
+              );
+            })}
           </ScrollView>
         ) : (
           <View style={homeSt.emptySectionCard}>
@@ -1598,22 +1638,36 @@ function Home({
             contentContainerStyle={homeSt.continueWatchingRow}
             style={{ marginHorizontal: -22 }}
           >
-            {recentActivity.map((s) => (
-              <Pressable
-                key={`recent-${s.mediaType}-${s.tmdbId ?? s.title}`}
-                onPress={() => open(s)}
-                style={homeSt.compactCard}
-              >
-                <View style={homeSt.compactPoster}>
-                  {s.posterPath ? (
-                    <Image source={{ uri: posterUrl(s.posterPath) }} style={homeSt.compactPosterImg} resizeMode="cover" />
-                  ) : (
-                    <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
-                  )}
-                </View>
-                <Text style={homeSt.compactTitle} numberOfLines={2}>{s.title}</Text>
-              </Pressable>
-            ))}
+            {recentActivity.map((s) => {
+              const watched = progress(s);
+              const isMovie = s.mediaType === 'movie';
+              const isDone = !isMovie && s.totalEpisodes > 0 && watched >= s.totalEpisodes;
+              const epSub = isMovie
+                ? (watched >= 1 ? (lang === 'pt' ? 'Filme · Visto' : 'Movie · Watched') : (lang === 'pt' ? 'Filme' : 'Movie'))
+                : `${watched}/${s.totalEpisodes} ${lang === 'pt' ? 'eps' : 'eps'}${isDone ? ' ✓' : ''}`;
+              const badgeText = isMovie ? (lang === 'pt' ? 'Filme' : 'Movie') : `${watched}/${s.totalEpisodes}`;
+
+              return (
+                <Pressable
+                  key={`recent-${s.mediaType}-${s.tmdbId ?? s.title}`}
+                  onPress={() => open(s)}
+                  style={homeSt.compactCard}
+                >
+                  <View style={homeSt.compactPoster}>
+                    {s.posterPath ? (
+                      <Image source={{ uri: posterUrl(s.posterPath) }} style={homeSt.compactPosterImg} resizeMode="cover" />
+                    ) : (
+                      <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
+                    )}
+                    <View style={[homeSt.epBadge, isDone && { borderColor: '#2E7D32' }]}>
+                      <Text style={[homeSt.epBadgeText, isDone && { color: '#68D391' }]}>{badgeText}</Text>
+                    </View>
+                  </View>
+                  <Text style={homeSt.compactTitle} numberOfLines={1}>{s.title}</Text>
+                  <Text style={[homeSt.compactSubtitle, isDone && { color: '#68D391' }]}>{epSub}</Text>
+                </Pressable>
+              );
+            })}
           </ScrollView>
         ) : (
           <View style={homeSt.emptySectionCard}>
@@ -1862,6 +1916,7 @@ function Library({
 function Watchlist({
   items,
   library,
+  progress,
   open,
   onRemove,
   onAddToWatchlist,
@@ -1869,6 +1924,7 @@ function Watchlist({
 }: {
   items: TmdbResult[];
   library: Series[];
+  progress: (s: Series) => number;
   open: (item: TmdbResult | Series) => void;
   onRemove: (item: TmdbResult) => void;
   onAddToWatchlist: (item: TmdbResult) => void;
@@ -2026,28 +2082,51 @@ function Watchlist({
           showsVerticalScrollIndicator={false}
           overScrollMode="always"
           bounces
-          renderItem={({ item }) => (
-            <Pressable onPress={() => open(item)} style={wlSt.gridCard}>
-              <View style={wlSt.gridPoster}>
-                {item.posterPath ? (
-                  <Image source={{ uri: posterUrl(item.posterPath) }} style={wlSt.gridPosterImg} resizeMode="cover" />
-                ) : (
-                  <Text style={homeSt.fallbackPosterText}>{item.title.slice(0, 1)}</Text>
-                )}
-                <Pressable
-                  onPress={(e) => {
-                    e?.stopPropagation?.();
-                    onRemove(item);
-                  }}
-                  style={wlSt.removeBadge}
-                  hitSlop={8}
-                >
-                  <Text style={wlSt.removeBadgeText}>✕</Text>
-                </Pressable>
-              </View>
-              <Text style={wlSt.gridTitle} numberOfLines={2}>{item.title}</Text>
-            </Pressable>
-          )}
+          renderItem={({ item }) => {
+            const libMatch = library.find(
+              (s) =>
+                (item.id && s.tmdbId === item.id) ||
+                (item.title && s.title.trim().toLowerCase() === item.title.trim().toLowerCase())
+            );
+            const epCount = libMatch?.totalEpisodes ?? item.totalEpisodes;
+            const epWatched = libMatch ? progress(libMatch) : 0;
+            const isMovie = item.mediaType === 'movie';
+            const epSub = isMovie
+              ? (lang === 'pt' ? 'Filme' : 'Movie')
+              : (epCount ? (epWatched > 0 ? `${epWatched}/${epCount} eps` : `${epCount} eps`) : (lang === 'pt' ? 'Série' : 'Series'));
+            const badgeText = isMovie
+              ? (lang === 'pt' ? 'Filme' : 'Movie')
+              : (epCount ? (epWatched > 0 ? `${epWatched}/${epCount}` : `${epCount} eps`) : null);
+
+            return (
+              <Pressable onPress={() => open(item)} style={wlSt.gridCard}>
+                <View style={wlSt.gridPoster}>
+                  {item.posterPath ? (
+                    <Image source={{ uri: posterUrl(item.posterPath) }} style={wlSt.gridPosterImg} resizeMode="cover" />
+                  ) : (
+                    <Text style={homeSt.fallbackPosterText}>{item.title.slice(0, 1)}</Text>
+                  )}
+                  {badgeText ? (
+                    <View style={homeSt.epBadge}>
+                      <Text style={homeSt.epBadgeText}>{badgeText}</Text>
+                    </View>
+                  ) : null}
+                  <Pressable
+                    onPress={(e) => {
+                      e?.stopPropagation?.();
+                      onRemove(item);
+                    }}
+                    style={wlSt.removeBadge}
+                    hitSlop={8}
+                  >
+                    <Text style={wlSt.removeBadgeText}>✕</Text>
+                  </Pressable>
+                </View>
+                <Text style={wlSt.gridTitle} numberOfLines={1}>{item.title}</Text>
+                <Text style={wlSt.gridSubtitle}>{epSub}</Text>
+              </Pressable>
+            );
+          }}
         />
       ) : (
         <FlatList
@@ -2059,32 +2138,42 @@ function Watchlist({
           showsVerticalScrollIndicator={false}
           overScrollMode="always"
           bounces
-          renderItem={({ item }) => (
-            <Pressable onPress={() => open(item)} style={catSt.watchlistRow}>
-              <PosterThumb posterPath={item.posterPath} title={item.title} size="sm" />
-              <View style={[styles.rowBody, { marginLeft: 12 }]}>
-                <Text style={styles.rowTitle}>{item.title}</Text>
-                <Text style={styles.rowMeta}>
-                  {item.mediaType === 'movie'
-                    ? (lang === 'pt' ? 'Filme' : 'Movie')
-                    : (lang === 'pt' ? 'Série' : 'Series')}
-                </Text>
-                {item.overview ? (
-                  <Text numberOfLines={2} style={catSt.overview}>{item.overview}</Text>
-                ) : null}
-              </View>
-              <Pressable
-                onPress={(e) => {
-                  e?.stopPropagation?.();
-                  onRemove(item);
-                }}
-                style={catSt.removeButton}
-                hitSlop={8}
-              >
-                <Text style={catSt.removeText}>✕</Text>
+          renderItem={({ item }) => {
+            const libMatch = library.find(
+              (s) =>
+                (item.id && s.tmdbId === item.id) ||
+                (item.title && s.title.trim().toLowerCase() === item.title.trim().toLowerCase())
+            );
+            const epCount = libMatch?.totalEpisodes ?? item.totalEpisodes;
+            const epWatched = libMatch ? progress(libMatch) : 0;
+            const isMovie = item.mediaType === 'movie';
+            const epLabel = isMovie
+              ? (lang === 'pt' ? 'Filme' : 'Movie')
+              : (epCount ? (epWatched > 0 ? `${epWatched}/${epCount} eps` : `${epCount} eps`) : (lang === 'pt' ? 'Série' : 'Series'));
+
+            return (
+              <Pressable onPress={() => open(item)} style={catSt.watchlistRow}>
+                <PosterThumb posterPath={item.posterPath} title={item.title} size="sm" />
+                <View style={[styles.rowBody, { marginLeft: 12 }]}>
+                  <Text style={styles.rowTitle}>{item.title}</Text>
+                  <Text style={styles.rowMeta}>{epLabel}</Text>
+                  {item.overview ? (
+                    <Text numberOfLines={2} style={catSt.overview}>{item.overview}</Text>
+                  ) : null}
+                </View>
+                <Pressable
+                  onPress={(e) => {
+                    e?.stopPropagation?.();
+                    onRemove(item);
+                  }}
+                  style={catSt.removeButton}
+                  hitSlop={8}
+                >
+                  <Text style={catSt.removeText}>✕</Text>
+                </Pressable>
               </Pressable>
-            </Pressable>
-          )}
+            );
+          }}
         />
       )}
     </View>
@@ -2312,22 +2401,35 @@ function Profile({
               contentContainerStyle={profSt.hCardRow}
               style={{ marginHorizontal: -22, marginTop: 8 }}
             >
-              {continueWatching.slice(0, 6).map((s) => (
-                <Pressable
-                  key={`prof-cw-${s.mediaType}-${s.tmdbId ?? s.title}`}
-                  onPress={() => open(s)}
-                  style={profSt.hCard}
-                >
-                  <View style={profSt.hPoster}>
-                    {s.posterPath ? (
-                      <Image source={{ uri: posterUrl(s.posterPath) }} style={profSt.hPosterImg} resizeMode="cover" />
-                    ) : (
-                      <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
-                    )}
-                  </View>
-                  <Text style={profSt.hTitle} numberOfLines={2}>{s.title}</Text>
-                </Pressable>
-              ))}
+              {continueWatching.slice(0, 6).map((s) => {
+                const watched = progress(s);
+                const isMovie = s.mediaType === 'movie';
+                const epSub = isMovie
+                  ? (watched >= 1 ? (lang === 'pt' ? 'Filme · Visto' : 'Movie · Watched') : (lang === 'pt' ? 'Filme' : 'Movie'))
+                  : `${watched}/${s.totalEpisodes} ${lang === 'pt' ? 'eps' : 'eps'}`;
+                const badgeText = isMovie ? (lang === 'pt' ? 'Filme' : 'Movie') : `${watched}/${s.totalEpisodes}`;
+
+                return (
+                  <Pressable
+                    key={`prof-cw-${s.mediaType}-${s.tmdbId ?? s.title}`}
+                    onPress={() => open(s)}
+                    style={profSt.hCard}
+                  >
+                    <View style={profSt.hPoster}>
+                      {s.posterPath ? (
+                        <Image source={{ uri: posterUrl(s.posterPath) }} style={profSt.hPosterImg} resizeMode="cover" />
+                      ) : (
+                        <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
+                      )}
+                      <View style={homeSt.epBadge}>
+                        <Text style={homeSt.epBadgeText}>{badgeText}</Text>
+                      </View>
+                    </View>
+                    <Text style={profSt.hTitle} numberOfLines={1}>{s.title}</Text>
+                    <Text style={profSt.hSubtitle}>{epSub}</Text>
+                  </Pressable>
+                );
+              })}
             </ScrollView>
           ) : (
             <View style={homeSt.emptySectionCard}>
@@ -2365,22 +2467,36 @@ function Profile({
               contentContainerStyle={profSt.hCardRow}
               style={{ marginHorizontal: -22, marginTop: 8 }}
             >
-              {recentActivity.slice(0, 6).map((s) => (
-                <Pressable
-                  key={`prof-ra-${s.mediaType}-${s.tmdbId ?? s.title}`}
-                  onPress={() => open(s)}
-                  style={profSt.hCard}
-                >
-                  <View style={profSt.hPoster}>
-                    {s.posterPath ? (
-                      <Image source={{ uri: posterUrl(s.posterPath) }} style={profSt.hPosterImg} resizeMode="cover" />
-                    ) : (
-                      <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
-                    )}
-                  </View>
-                  <Text style={profSt.hTitle} numberOfLines={2}>{s.title}</Text>
-                </Pressable>
-              ))}
+              {recentActivity.slice(0, 6).map((s) => {
+                const watched = progress(s);
+                const isMovie = s.mediaType === 'movie';
+                const isDone = !isMovie && s.totalEpisodes > 0 && watched >= s.totalEpisodes;
+                const epSub = isMovie
+                  ? (watched >= 1 ? (lang === 'pt' ? 'Filme · Visto' : 'Movie · Watched') : (lang === 'pt' ? 'Filme' : 'Movie'))
+                  : `${watched}/${s.totalEpisodes} ${lang === 'pt' ? 'eps' : 'eps'}${isDone ? ' ✓' : ''}`;
+                const badgeText = isMovie ? (lang === 'pt' ? 'Filme' : 'Movie') : `${watched}/${s.totalEpisodes}`;
+
+                return (
+                  <Pressable
+                    key={`prof-ra-${s.mediaType}-${s.tmdbId ?? s.title}`}
+                    onPress={() => open(s)}
+                    style={profSt.hCard}
+                  >
+                    <View style={profSt.hPoster}>
+                      {s.posterPath ? (
+                        <Image source={{ uri: posterUrl(s.posterPath) }} style={profSt.hPosterImg} resizeMode="cover" />
+                      ) : (
+                        <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
+                      )}
+                      <View style={[homeSt.epBadge, isDone && { borderColor: '#2E7D32' }]}>
+                        <Text style={[homeSt.epBadgeText, isDone && { color: '#68D391' }]}>{badgeText}</Text>
+                      </View>
+                    </View>
+                    <Text style={profSt.hTitle} numberOfLines={1}>{s.title}</Text>
+                    <Text style={[profSt.hSubtitle, isDone && { color: '#68D391' }]}>{epSub}</Text>
+                  </Pressable>
+                );
+              })}
             </ScrollView>
           ) : (
             <View style={homeSt.emptySectionCard}>
@@ -2418,22 +2534,45 @@ function Profile({
               contentContainerStyle={profSt.hCardRow}
               style={{ marginHorizontal: -22, marginTop: 8 }}
             >
-              {watchlist.slice(0, 6).map((w) => (
-                <Pressable
-                  key={`prof-wl-${w.mediaType}-${w.id}`}
-                  onPress={() => open(w)}
-                  style={profSt.hCard}
-                >
-                  <View style={profSt.hPoster}>
-                    {w.posterPath ? (
-                      <Image source={{ uri: posterUrl(w.posterPath) }} style={profSt.hPosterImg} resizeMode="cover" />
-                    ) : (
-                      <Text style={homeSt.fallbackPosterText}>{w.title.slice(0, 1)}</Text>
-                    )}
-                  </View>
-                  <Text style={profSt.hTitle} numberOfLines={2}>{w.title}</Text>
-                </Pressable>
-              ))}
+              {watchlist.slice(0, 6).map((w) => {
+                const libMatch = library.find(
+                  (s) =>
+                    (w.id && s.tmdbId === w.id) ||
+                    (w.title && s.title.trim().toLowerCase() === w.title.trim().toLowerCase())
+                );
+                const epCount = libMatch?.totalEpisodes ?? w.totalEpisodes;
+                const epWatched = libMatch ? progress(libMatch) : 0;
+                const isMovie = w.mediaType === 'movie';
+                const epSub = isMovie
+                  ? (lang === 'pt' ? 'Filme' : 'Movie')
+                  : (epCount ? (epWatched > 0 ? `${epWatched}/${epCount} eps` : `${epCount} eps`) : (lang === 'pt' ? 'Série' : 'Series'));
+                const badgeText = isMovie
+                  ? (lang === 'pt' ? 'Filme' : 'Movie')
+                  : (epCount ? (epWatched > 0 ? `${epWatched}/${epCount}` : `${epCount} eps`) : null);
+
+                return (
+                  <Pressable
+                    key={`prof-wl-${w.mediaType}-${w.id}`}
+                    onPress={() => open(w)}
+                    style={profSt.hCard}
+                  >
+                    <View style={profSt.hPoster}>
+                      {w.posterPath ? (
+                        <Image source={{ uri: posterUrl(w.posterPath) }} style={profSt.hPosterImg} resizeMode="cover" />
+                      ) : (
+                        <Text style={homeSt.fallbackPosterText}>{w.title.slice(0, 1)}</Text>
+                      )}
+                      {badgeText ? (
+                        <View style={homeSt.epBadge}>
+                          <Text style={homeSt.epBadgeText}>{badgeText}</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <Text style={profSt.hTitle} numberOfLines={1}>{w.title}</Text>
+                    <Text style={profSt.hSubtitle}>{epSub}</Text>
+                  </Pressable>
+                );
+              })}
             </ScrollView>
           ) : (
             <View style={homeSt.emptySectionCard}>
@@ -2471,22 +2610,34 @@ function Profile({
               contentContainerStyle={profSt.hCardRow}
               style={{ marginHorizontal: -22, marginTop: 8 }}
             >
-              {completedSeries.slice(0, 6).map((s) => (
-                <Pressable
-                  key={`prof-comp-${s.mediaType}-${s.tmdbId ?? s.title}`}
-                  onPress={() => open(s)}
-                  style={profSt.hCard}
-                >
-                  <View style={profSt.hPoster}>
-                    {s.posterPath ? (
-                      <Image source={{ uri: posterUrl(s.posterPath) }} style={profSt.hPosterImg} resizeMode="cover" />
-                    ) : (
-                      <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
-                    )}
-                  </View>
-                  <Text style={profSt.hTitle} numberOfLines={2}>{s.title}</Text>
-                </Pressable>
-              ))}
+              {completedSeries.slice(0, 6).map((s) => {
+                const isMovie = s.mediaType === 'movie';
+                const epSub = isMovie
+                  ? (lang === 'pt' ? 'Filme · Visto' : 'Movie · Watched')
+                  : `${s.totalEpisodes}/${s.totalEpisodes} ${lang === 'pt' ? 'eps' : 'eps'} ✓`;
+                const badgeText = isMovie ? (lang === 'pt' ? 'Filme' : 'Movie') : `${s.totalEpisodes}/${s.totalEpisodes}`;
+
+                return (
+                  <Pressable
+                    key={`prof-comp-${s.mediaType}-${s.tmdbId ?? s.title}`}
+                    onPress={() => open(s)}
+                    style={profSt.hCard}
+                  >
+                    <View style={profSt.hPoster}>
+                      {s.posterPath ? (
+                        <Image source={{ uri: posterUrl(s.posterPath) }} style={profSt.hPosterImg} resizeMode="cover" />
+                      ) : (
+                        <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
+                      )}
+                      <View style={[homeSt.epBadge, { borderColor: '#2E7D32' }]}>
+                        <Text style={[homeSt.epBadgeText, { color: '#68D391' }]}>{badgeText}</Text>
+                      </View>
+                    </View>
+                    <Text style={profSt.hTitle} numberOfLines={1}>{s.title}</Text>
+                    <Text style={[profSt.hSubtitle, { color: '#68D391' }]}>{epSub}</Text>
+                  </Pressable>
+                );
+              })}
             </ScrollView>
           ) : (
             <View style={homeSt.emptySectionCard}>
@@ -2521,24 +2672,63 @@ function Profile({
             showsVerticalScrollIndicator={false}
             overScrollMode="always"
             bounces
-            renderItem={({ item: it }) => (
-              <Pressable
-                onPress={() => {
-                  setSeeAllModal({ visible: false, title: '', items: [] });
-                  open(it);
-                }}
-                style={wlSt.gridCard}
-              >
-                <View style={wlSt.gridPoster}>
-                  {it.posterPath ? (
-                    <Image source={{ uri: posterUrl(it.posterPath) }} style={wlSt.gridPosterImg} resizeMode="cover" />
-                  ) : (
-                    <Text style={homeSt.fallbackPosterText}>{it.title.slice(0, 1)}</Text>
-                  )}
-                </View>
-                <Text style={wlSt.gridTitle} numberOfLines={2}>{it.title}</Text>
-              </Pressable>
-            )}
+            renderItem={({ item: it }) => {
+              const isSeries = 'collection' in it || 'seasons' in it;
+              const isMovie = it.mediaType === 'movie';
+              let epSub = '';
+              let badgeText: string | null = null;
+              let isDone = false;
+
+              if (isSeries) {
+                const s = it as Series;
+                const watched = progress(s);
+                isDone = !isMovie && s.totalEpisodes > 0 && watched >= s.totalEpisodes;
+                epSub = isMovie
+                  ? (watched >= 1 ? (lang === 'pt' ? 'Filme · Visto' : 'Movie · Watched') : (lang === 'pt' ? 'Filme' : 'Movie'))
+                  : `${watched}/${s.totalEpisodes} eps${isDone ? ' ✓' : ''}`;
+                badgeText = isMovie ? (lang === 'pt' ? 'Filme' : 'Movie') : `${watched}/${s.totalEpisodes}`;
+              } else {
+                const w = it as TmdbResult;
+                const libMatch = library.find(
+                  (s) =>
+                    (w.id && s.tmdbId === w.id) ||
+                    (w.title && s.title.trim().toLowerCase() === w.title.trim().toLowerCase())
+                );
+                const epCount = libMatch?.totalEpisodes ?? w.totalEpisodes;
+                const epWatched = libMatch ? progress(libMatch) : 0;
+                epSub = isMovie
+                  ? (lang === 'pt' ? 'Filme' : 'Movie')
+                  : (epCount ? (epWatched > 0 ? `${epWatched}/${epCount} eps` : `${epCount} eps`) : (lang === 'pt' ? 'Série' : 'Series'));
+                badgeText = isMovie
+                  ? (lang === 'pt' ? 'Filme' : 'Movie')
+                  : (epCount ? (epWatched > 0 ? `${epWatched}/${epCount}` : `${epCount} eps`) : null);
+              }
+
+              return (
+                <Pressable
+                  onPress={() => {
+                    setSeeAllModal({ visible: false, title: '', items: [] });
+                    open(it);
+                  }}
+                  style={wlSt.gridCard}
+                >
+                  <View style={wlSt.gridPoster}>
+                    {it.posterPath ? (
+                      <Image source={{ uri: posterUrl(it.posterPath) }} style={wlSt.gridPosterImg} resizeMode="cover" />
+                    ) : (
+                      <Text style={homeSt.fallbackPosterText}>{it.title.slice(0, 1)}</Text>
+                    )}
+                    {badgeText ? (
+                      <View style={[homeSt.epBadge, isDone && { borderColor: '#2E7D32' }]}>
+                        <Text style={[homeSt.epBadgeText, isDone && { color: '#68D391' }]}>{badgeText}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <Text style={wlSt.gridTitle} numberOfLines={1}>{it.title}</Text>
+                  <Text style={[wlSt.gridSubtitle, isDone && { color: '#68D391' }]}>{epSub}</Text>
+                </Pressable>
+              );
+            }}
           />
         </SafeAreaView>
       </Modal>
@@ -4434,6 +4624,14 @@ const homeSt = StyleSheet.create({
   compactPosterImg: { width: '100%', height: '100%' },
   fallbackPosterText: { color: C.bordeaux, fontSize: 24, fontWeight: '800' },
   compactTitle: { color: C.cream, fontSize: 14, fontWeight: '600', marginTop: 6, textAlign: 'center', lineHeight: 18 },
+  compactSubtitle: {
+    color: C.gold,
+    fontSize: 12.5,
+    fontWeight: '700',
+    marginTop: 2,
+    textAlign: 'center',
+    lineHeight: 15,
+  },
   epBadge: {
     position: 'absolute', bottom: 4, right: 4,
     backgroundColor: 'rgba(16,12,13,0.92)', borderRadius: 6,
@@ -4477,6 +4675,14 @@ const wlSt = StyleSheet.create({
   },
   gridPosterImg: { width: '100%', height: '100%' },
   gridTitle: { color: C.cream, fontSize: 14, fontWeight: '600', marginTop: 6, textAlign: 'center', lineHeight: 18 },
+  gridSubtitle: {
+    color: C.gold,
+    fontSize: 12.5,
+    fontWeight: '700',
+    marginTop: 2,
+    textAlign: 'center',
+    lineHeight: 15,
+  },
   removeBadge: {
     position: 'absolute', top: 4, right: 4,
     backgroundColor: 'rgba(0,0,0,0.75)', borderRadius: 13,
@@ -4659,6 +4865,14 @@ const profSt = StyleSheet.create({
   },
   hPosterImg: { width: '100%', height: '100%' },
   hTitle: { color: C.cream, fontSize: 13.5, fontWeight: '600', marginTop: 4, textAlign: 'center', lineHeight: 16 },
+  hSubtitle: {
+    color: C.gold,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 2,
+    textAlign: 'center',
+    lineHeight: 15,
+  },
   settingsSectionLabel: { color: C.gold, fontWeight: '700', fontSize: 15.5, marginTop: 16, marginBottom: 8 },
   // Settings Media Customization (Photo & Cover)
   settingsMediaRow: { flexDirection: 'row', gap: 12, marginTop: 4 },
