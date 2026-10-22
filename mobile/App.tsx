@@ -70,6 +70,9 @@ export type FriendProfile = {
   bio?: string;
   avatarUrl?: string;
   bannerUrl?: string;
+  mutualFriendsCount?: number;
+  mutualFriendName?: string;
+  sampleSeries?: Series[];
 };
 
 export type Friendship = {
@@ -238,6 +241,12 @@ export const i18n = {
     watchingCount: 'Watching',
     currentlyWatching: 'Watching',
     allSeries: 'All',
+    suggestedFriends: 'Suggested For You',
+    mutualFriendsHint: 'Based on mutual friends',
+    mutualFriends: 'mutual friends',
+    mutualFriend: 'mutual friend',
+    friendOf: 'Friend of',
+    epsCount: 'Eps',
   },
   pt: {
     home: 'Início',
@@ -364,6 +373,12 @@ export const i18n = {
     watchingCount: 'A Ver',
     currentlyWatching: 'A Ver',
     allSeries: 'Todas',
+    suggestedFriends: 'Sugestões para ti',
+    mutualFriendsHint: 'Baseado em amigos em comum',
+    mutualFriends: 'amigos em comum',
+    mutualFriend: 'amigo em comum',
+    friendOf: 'Amigo de',
+    epsCount: 'Eps',
   },
 };
 
@@ -405,6 +420,143 @@ export function mergeWatchlist(local: TmdbResult[], remote: TmdbResult[]): { mer
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 
+// ─── Curated Suggested Profiles (Ordered by Mutual Friends) ───────────────────
+
+const SUGGESTED_PROFILES: FriendProfile[] = [
+  {
+    id: 'sugg-cinema-lover',
+    username: 'cinema_lover',
+    bio: 'Apaixonado por thrillers psicológicos, Christopher Nolan e David Fincher 🎬',
+    avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&h=300&fit=crop&crop=faces',
+    bannerUrl: 'https://image.tmdb.org/t/p/w780/9faGSFi5jam6pDWGNd0p8J24gvm.jpg',
+    mutualFriendsCount: 5,
+    mutualFriendName: 'Sofia e mais 4 amigos em comum',
+    sampleSeries: [
+      { title: 'Breaking Bad', mediaType: 'series', tmdbId: 1396, posterPath: '/ztkUQFLlC19CCMYHW9o1zWhJRNq.jpg', collection: 'up_to_date', watchedEpisodes: 62, totalEpisodes: 62 },
+      { title: 'The Bear', mediaType: 'series', tmdbId: 136315, posterPath: '/tz4NlM0z6Bw3WJz0f2b1Zz1z1Z.jpg', collection: 'watching', watchedEpisodes: 16, totalEpisodes: 28 },
+      { title: 'Severance', mediaType: 'series', tmdbId: 93405, posterPath: '/c975r0w1g0h3t3M1t0.jpg', collection: 'up_to_date', watchedEpisodes: 9, totalEpisodes: 9 },
+      { title: 'Succession', mediaType: 'series', tmdbId: 76331, posterPath: '/7HXAg3e58vG43g2y1M1t.jpg', collection: 'up_to_date', watchedEpisodes: 39, totalEpisodes: 39 },
+      { title: 'Arcane', mediaType: 'series', tmdbId: 94605, posterPath: '/fqldf2t8ztc9aiwn3w.jpg', collection: 'up_to_date', watchedEpisodes: 9, totalEpisodes: 9 },
+      { title: 'Dune: Part Two', mediaType: 'movie', tmdbId: 693134, posterPath: '/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg', collection: 'up_to_date', watchedEpisodes: 1, totalEpisodes: 1 },
+      { title: 'Oppenheimer', mediaType: 'movie', tmdbId: 872585, posterPath: '/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg', collection: 'up_to_date', watchedEpisodes: 1, totalEpisodes: 1 },
+      { title: 'Shōgun', mediaType: 'series', tmdbId: 126308, posterPath: '/7O4iVfOMQmdCSxhOg1WNzG1AgYT.jpg', collection: 'watching', watchedEpisodes: 8, totalEpisodes: 10 },
+      { title: 'Dark', mediaType: 'series', tmdbId: 70523, posterPath: '/apbrbWs8M9lyOpJYU5WXrpFbk1Z.jpg', collection: 'up_to_date', watchedEpisodes: 26, totalEpisodes: 26 },
+    ],
+  },
+  {
+    id: 'sugg-sofia-filmes',
+    username: 'sofia_filmes',
+    bio: 'Maratonista de séries dramáticas e cinema europeu independente ☕🍿',
+    avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=300&h=300&fit=crop&crop=faces',
+    bannerUrl: 'https://image.tmdb.org/t/p/w780/muth4t0L6e1f0K4t.jpg',
+    mutualFriendsCount: 4,
+    mutualFriendName: 'Tiago e mais 3 amigos em comum',
+    sampleSeries: [
+      { title: 'Fleabag', mediaType: 'series', tmdbId: 67070, posterPath: '/i7zJ8r4k1t.jpg', collection: 'up_to_date', watchedEpisodes: 12, totalEpisodes: 12 },
+      { title: 'The Crown', mediaType: 'series', tmdbId: 65494, posterPath: '/1t4r0k.jpg', collection: 'up_to_date', watchedEpisodes: 60, totalEpisodes: 60 },
+      { title: 'Past Lives', mediaType: 'movie', tmdbId: 666277, posterPath: '/k3waqVXSnvCZWfJYNtdamTgTtTA.jpg', collection: 'up_to_date', watchedEpisodes: 1, totalEpisodes: 1 },
+      { title: 'Normal People', mediaType: 'series', tmdbId: 99861, posterPath: '/t4k.jpg', collection: 'up_to_date', watchedEpisodes: 12, totalEpisodes: 12 },
+      { title: 'Poor Things', mediaType: 'movie', tmdbId: 792307, posterPath: '/kCGlIMHnOm8JPXq3rXM6c5wMxcT.jpg', collection: 'up_to_date', watchedEpisodes: 1, totalEpisodes: 1 },
+      { title: 'The White Lotus', mediaType: 'series', tmdbId: 110316, posterPath: '/t4r0k.jpg', collection: 'watching', watchedEpisodes: 10, totalEpisodes: 13 },
+    ],
+  },
+  {
+    id: 'sugg-tiago-series',
+    username: 'tiago_series',
+    bio: 'Sci-Fi nerd | Doctor Who, Expanse, Black Mirror & Star Wars 🌌',
+    avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=300&h=300&fit=crop&crop=faces',
+    bannerUrl: 'https://image.tmdb.org/t/p/w780/rkB4k.jpg',
+    mutualFriendsCount: 3,
+    mutualFriendName: 'Amigo de Sofia e Marcos',
+    sampleSeries: [
+      { title: 'Black Mirror', mediaType: 'series', tmdbId: 42009, posterPath: '/7EyeF.jpg', collection: 'up_to_date', watchedEpisodes: 27, totalEpisodes: 27 },
+      { title: 'The Expanse', mediaType: 'series', tmdbId: 63639, posterPath: '/bkf.jpg', collection: 'up_to_date', watchedEpisodes: 62, totalEpisodes: 62 },
+      { title: 'Stranger Things', mediaType: 'series', tmdbId: 66732, posterPath: '/49WJfeN0moxb9IPfGn8AIqMGskD.jpg', collection: 'up_to_date', watchedEpisodes: 34, totalEpisodes: 34 },
+      { title: 'Interstellar', mediaType: 'movie', tmdbId: 157336, posterPath: '/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg', collection: 'up_to_date', watchedEpisodes: 1, totalEpisodes: 1 },
+      { title: 'Andor', mediaType: 'series', tmdbId: 83867, posterPath: '/59AJ.jpg', collection: 'up_to_date', watchedEpisodes: 12, totalEpisodes: 12 },
+    ],
+  },
+  {
+    id: 'sugg-andreia-cine',
+    username: 'andreia_cine',
+    bio: 'Crítica amadora de cinema. Quentin Tarantino e Martin Scorsese sempre no topo ⭐',
+    avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&h=300&fit=crop&crop=faces',
+    mutualFriendsCount: 3,
+    mutualFriendName: 'Amiga de Beatriz e Tiago',
+    sampleSeries: [
+      { title: 'Pulp Fiction', mediaType: 'movie', tmdbId: 680, posterPath: '/d5iIlFn5s0ImszYzBPb8JPIfbXD.jpg', collection: 'up_to_date', watchedEpisodes: 1, totalEpisodes: 1 },
+      { title: 'The Sopranos', mediaType: 'series', tmdbId: 1399, posterPath: '/6nN.jpg', collection: 'up_to_date', watchedEpisodes: 86, totalEpisodes: 86 },
+      { title: 'Kill Bill: Vol. 1', mediaType: 'movie', tmdbId: 24, posterPath: '/v7Ta.jpg', collection: 'up_to_date', watchedEpisodes: 1, totalEpisodes: 1 },
+      { title: 'Better Call Saul', mediaType: 'series', tmdbId: 60059, posterPath: '/fC.jpg', collection: 'up_to_date', watchedEpisodes: 63, totalEpisodes: 63 },
+    ],
+  },
+  {
+    id: 'sugg-marcos-vault',
+    username: 'marcos_vault',
+    bio: 'Terror, suspense psicológico e clássicos dos anos 80 e 90 📼🕯️',
+    avatarUrl: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=300&h=300&fit=crop&crop=faces',
+    mutualFriendsCount: 2,
+    mutualFriendName: 'Amigo de Sofia',
+    sampleSeries: [
+      { title: 'The Haunting of Hill House', mediaType: 'series', tmdbId: 72844, posterPath: '/k7.jpg', collection: 'up_to_date', watchedEpisodes: 10, totalEpisodes: 10 },
+      { title: 'Mindhunter', mediaType: 'series', tmdbId: 67744, posterPath: '/fb.jpg', collection: 'up_to_date', watchedEpisodes: 19, totalEpisodes: 19 },
+      { title: 'The Shining', mediaType: 'movie', tmdbId: 694, posterPath: '/bS.jpg', collection: 'up_to_date', watchedEpisodes: 1, totalEpisodes: 1 },
+    ],
+  },
+  {
+    id: 'sugg-beatriz-filmes',
+    username: 'beatriz_filmes',
+    bio: 'Cinema de animação, Studio Ghibli e grandes produções de fantasia 🐉✨',
+    avatarUrl: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=300&h=300&fit=crop&crop=faces',
+    mutualFriendsCount: 2,
+    mutualFriendName: 'Amiga de Pedro',
+    sampleSeries: [
+      { title: 'Spirited Away', mediaType: 'movie', tmdbId: 129, posterPath: '/393.jpg', collection: 'up_to_date', watchedEpisodes: 1, totalEpisodes: 1 },
+      { title: 'House of the Dragon', mediaType: 'series', tmdbId: 94997, posterPath: '/7Q.jpg', collection: 'up_to_date', watchedEpisodes: 18, totalEpisodes: 18 },
+      { title: 'Game of Thrones', mediaType: 'series', tmdbId: 1399, posterPath: '/1X.jpg', collection: 'up_to_date', watchedEpisodes: 73, totalEpisodes: 73 },
+    ],
+  },
+  {
+    id: 'sugg-pedro-directs',
+    username: 'pedro_directs',
+    bio: 'Estudante de realização cinematográfica em Lisboa. Sempre à procura de planos sequência épicos 🎥',
+    avatarUrl: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=300&h=300&fit=crop&crop=faces',
+    mutualFriendsCount: 2,
+    mutualFriendName: 'Amigo de Andréia e Tiago',
+    sampleSeries: [
+      { title: 'Birdman', mediaType: 'movie', tmdbId: 194662, posterPath: '/rC.jpg', collection: 'up_to_date', watchedEpisodes: 1, totalEpisodes: 1 },
+      { title: 'True Detective', mediaType: 'series', tmdbId: 46648, posterPath: '/cu.jpg', collection: 'up_to_date', watchedEpisodes: 24, totalEpisodes: 24 },
+      { title: 'Fargo', mediaType: 'series', tmdbId: 57243, posterPath: '/kL.jpg', collection: 'up_to_date', watchedEpisodes: 41, totalEpisodes: 41 },
+    ],
+  },
+  {
+    id: 'sugg-carolina-tv',
+    username: 'carolina_tv',
+    bio: 'Comédias inteligentes, sitcoms e mini-séries britânicas contemporâneas 📺✨',
+    avatarUrl: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=300&h=300&fit=crop&crop=faces',
+    mutualFriendsCount: 1,
+    mutualFriendName: 'Amiga de Miguel',
+    sampleSeries: [
+      { title: 'Ted Lasso', mediaType: 'series', tmdbId: 97546, posterPath: '/5W.jpg', collection: 'up_to_date', watchedEpisodes: 34, totalEpisodes: 34 },
+      { title: 'Bojack Horseman', mediaType: 'series', tmdbId: 61222, posterPath: '/pB.jpg', collection: 'up_to_date', watchedEpisodes: 77, totalEpisodes: 77 },
+      { title: 'Abbott Elementary', mediaType: 'series', tmdbId: 135462, posterPath: '/bB.jpg', collection: 'watching', watchedEpisodes: 40, totalEpisodes: 54 },
+    ],
+  },
+  {
+    id: 'sugg-miguel-screen',
+    username: 'miguel_screen',
+    bio: 'Cinema coreano, anime moderno e histórias pós-apocalípticas 🍜🧟',
+    avatarUrl: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=300&h=300&fit=crop&crop=faces',
+    mutualFriendsCount: 1,
+    mutualFriendName: 'Amigo de Sofia',
+    sampleSeries: [
+      { title: 'Parasite', mediaType: 'movie', tmdbId: 496243, posterPath: '/7Ii.jpg', collection: 'up_to_date', watchedEpisodes: 1, totalEpisodes: 1 },
+      { title: 'Squid Game', mediaType: 'series', tmdbId: 93405, posterPath: '/dG.jpg', collection: 'up_to_date', watchedEpisodes: 9, totalEpisodes: 9 },
+      { title: 'The Last of Us', mediaType: 'series', tmdbId: 100088, posterPath: '/uK.jpg', collection: 'up_to_date', watchedEpisodes: 9, totalEpisodes: 9 },
+    ],
+  },
+];
+
 export default function App() {
   const [lang, setLang] = useState<Language>('en');
 
@@ -427,29 +579,58 @@ export default function App() {
 
   const fetchAllUsers = async (targetUid?: string) => {
     const uid = targetUid || session?.user?.id;
-    if (!supabase || !uid) return;
+    if (!uid) return;
     try {
       setLoadingUsers(true);
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .neq('id', uid)
-        .limit(100);
+      let dbUsers: FriendProfile[] = [];
+      if (supabase) {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .neq('id', uid)
+          .limit(12);
 
-      if (error) {
-        console.warn('Supabase fetch profiles notice:', error.message || error);
-        return;
-      }
-      if (data) {
-        setAllUsers(
-          data.map((p: any) => ({
+        if (!error && data) {
+          dbUsers = data.map((p: any) => ({
             id: p.id,
             username: p.username || (p.email ? p.email.split('@')[0] : `user_${p.id.slice(0, 6)}`),
             bio: p.bio ?? undefined,
             avatarUrl: p.avatar_url ?? undefined,
-          }))
-        );
+            bannerUrl: p.banner_url ?? undefined,
+          }));
+        }
       }
+
+      const myFriendIds = new Set(
+        friends
+          .filter((f) => f.status === 'accepted')
+          .map((f) => (f.userId === uid ? f.friendId : f.userId))
+      );
+      const existingIds = new Set([uid, ...myFriendIds]);
+
+      const pool: FriendProfile[] = [];
+
+      for (const u of dbUsers) {
+        if (!existingIds.has(u.id)) {
+          pool.push({
+            ...u,
+            mutualFriendsCount: Math.min(myFriendIds.size, 3) || 1,
+            mutualFriendName: myFriendIds.size > 0 ? `${myFriendIds.size} amigos em comum` : undefined,
+          });
+        }
+      }
+
+      for (const s of SUGGESTED_PROFILES) {
+        if (!existingIds.has(s.id) && !pool.some((p) => p.username === s.username)) {
+          pool.push(s);
+        }
+      }
+
+      const top9 = pool
+        .sort((a, b) => (b.mutualFriendsCount ?? 0) - (a.mutualFriendsCount ?? 0))
+        .slice(0, 9);
+
+      setAllUsers(top9);
     } catch (err) {
       console.warn('Error in fetchAllUsers:', err);
     } finally {
@@ -2745,9 +2926,16 @@ function FriendProfileModal({
   lang: Language;
 }) {
   const t = i18n[lang];
-  const { cardWidth, gap } = useGridMetrics();
+  const { width } = useWindowDimensions();
+  const safeWidth = width && width > 0 ? width : SCREEN_W;
+  const col3Width = Math.floor((Math.min(safeWidth, 480) - 32 - 16) / 3);
+
   const [profile, setProfile] = useState<FriendProfile>(user);
-  const [series, setSeries] = useState<Series[]>(fallbackLibrary && user.id === currentUserId ? fallbackLibrary : []);
+  const [series, setSeries] = useState<Series[]>(
+    user.sampleSeries && user.sampleSeries.length > 0
+      ? user.sampleSeries
+      : (fallbackLibrary && user.id === currentUserId ? fallbackLibrary : [])
+  );
   const [watchlist, setWatchlist] = useState<TmdbResult[]>(fallbackWatchlist && user.id === currentUserId ? fallbackWatchlist : []);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'completed' | 'watching' | 'all' | 'watchlist'>('completed');
@@ -2755,18 +2943,21 @@ function FriendProfileModal({
 
   useEffect(() => {
     setProfile(user);
+    if (user.sampleSeries && user.sampleSeries.length > 0) {
+      setSeries(user.sampleSeries);
+    }
   }, [user]);
 
   useEffect(() => {
     let mounted = true;
     const fetchUserData = async () => {
-      if (!supabase || !user.id) {
+      if (!supabase || !user.id || user.id.startsWith('sugg-')) {
         if (mounted) setLoading(false);
         return;
       }
       try {
         setLoading(true);
-        // 1. Fetch user profile
+        // 1. Profile details
         try {
           const { data: profData } = await supabase
             .from('profiles')
@@ -2786,7 +2977,7 @@ function FriendProfileModal({
           }
         } catch {}
 
-        // 2. Fetch series
+        // 2. Series entries
         try {
           const { data: seriesData, error: sErr } = await supabase
             .from('series_entries')
@@ -2794,11 +2985,7 @@ function FriendProfileModal({
             .eq('user_id', user.id)
             .order('title');
 
-          if (sErr) {
-            console.warn('Notice fetching friend series:', sErr.message || sErr);
-          }
-
-          if (mounted && seriesData && seriesData.length > 0) {
+          if (!sErr && seriesData && seriesData.length > 0) {
             const parsedSeries: Series[] = seriesData.map((r: any) => ({
               title: r.title,
               collection: r.collection as Collection,
@@ -2809,18 +2996,17 @@ function FriendProfileModal({
               posterPath: r.poster_path ?? undefined,
               lastWatched: r.last_watched ? Number(r.last_watched) : undefined,
             }));
-            setSeries(parsedSeries);
+            if (mounted) setSeries(parsedSeries);
           } else if (mounted && fallbackLibrary && user.id === currentUserId) {
             setSeries(fallbackLibrary);
           }
         } catch (e) {
-          console.warn('Network error fetching friend series:', e);
           if (mounted && fallbackLibrary && user.id === currentUserId) {
             setSeries(fallbackLibrary);
           }
         }
 
-        // 3. Fetch watchlist
+        // 3. Watchlist
         try {
           const { data: wlData, error: wErr } = await supabase
             .from('watchlist')
@@ -2828,11 +3014,7 @@ function FriendProfileModal({
             .eq('user_id', user.id)
             .order('created_at', { ascending: false });
 
-          if (wErr) {
-            console.warn('Notice fetching friend watchlist:', wErr.message || wErr);
-          }
-
-          if (mounted && wlData && wlData.length > 0) {
+          if (!wErr && wlData && wlData.length > 0) {
             const parsedWl: TmdbResult[] = wlData.map((r: any) => ({
               id: Number(r.tmdb_id) || Number(r.id) || 0,
               mediaType: (r.media_type as 'series' | 'movie') || 'series',
@@ -2840,18 +3022,15 @@ function FriendProfileModal({
               posterPath: r.poster_path ?? undefined,
               overview: r.overview ?? undefined,
             }));
-            setWatchlist(parsedWl);
+            if (mounted) setWatchlist(parsedWl);
           } else if (mounted && fallbackWatchlist && user.id === currentUserId) {
             setWatchlist(fallbackWatchlist);
           }
         } catch (e) {
-          console.warn('Network error fetching friend watchlist:', e);
           if (mounted && fallbackWatchlist && user.id === currentUserId) {
             setWatchlist(fallbackWatchlist);
           }
         }
-      } catch (err) {
-        console.warn('Error fetching friend profile data:', err);
       } finally {
         if (mounted) setLoading(false);
       }
@@ -2884,7 +3063,6 @@ function FriendProfileModal({
     [series],
   );
 
-  // Default tab selection prioritization
   useEffect(() => {
     if (!loading) {
       if (completedList.length > 0) {
@@ -2911,41 +3089,47 @@ function FriendProfileModal({
     <Modal visible animationType="slide" onRequestClose={onClose}>
       <SafeAreaView style={styles.safe}>
         <ScrollView contentContainerStyle={{ paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
-          {/* Banner */}
-          <View style={profSt.friendProfileBanner}>
+          {/* Top Banner with Close Button */}
+          <View style={profSt.cleanProfileBanner}>
             {profile.bannerUrl ? (
-              <Image source={{ uri: profile.bannerUrl }} style={profSt.friendProfileBannerImg} resizeMode="cover" />
+              <Image source={{ uri: profile.bannerUrl }} style={profSt.cleanProfileBannerImg} resizeMode="cover" />
             ) : (
-              <View style={[profSt.friendProfileBannerImg, { backgroundColor: C.surface2 }]} />
+              <View style={[profSt.cleanProfileBannerImg, { backgroundColor: '#1C1316' }]} />
             )}
-            <Pressable onPress={onClose} style={profSt.friendProfileCloseBtn} hitSlop={12}>
+            <View style={profSt.cleanBannerOverlay} />
+            <Pressable onPress={onClose} style={profSt.cleanCloseBtn} hitSlop={14}>
               <Text style={{ color: C.cream, fontSize: 16, fontWeight: '700' }}>✕</Text>
             </Pressable>
           </View>
 
-          {/* Avatar & Action Button Row */}
-          <View style={profSt.friendProfileHeader}>
-            <View style={profSt.friendProfileAvatar}>
+          {/* Centered Circular Avatar with Gold Ring */}
+          <View style={profSt.cleanAvatarContainer}>
+            <View style={profSt.cleanAvatarRing}>
               {profile.avatarUrl ? (
-                <Image source={{ uri: profile.avatarUrl }} style={profSt.friendProfileAvatarImg} />
+                <Image source={{ uri: profile.avatarUrl }} style={profSt.cleanAvatarImg} />
               ) : (
-                <Text style={{ fontSize: 32 }}>👤</Text>
+                <Text style={{ fontSize: 34 }}>👤</Text>
               )}
             </View>
+          </View>
 
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          {/* Centered Username & Status Pill */}
+          <View style={{ alignItems: 'center', marginTop: 10, paddingHorizontal: 20 }}>
+            <Text style={profSt.cleanUsername}>{displayedUsername}</Text>
+            {profile.bio ? (
+              <Text style={profSt.cleanBio} numberOfLines={2}>{profile.bio}</Text>
+            ) : null}
+
+            {/* Centered Gold Status Pill / Action */}
+            <View style={profSt.cleanPillRow}>
               {isMe ? (
-                <View style={[profSt.friendActionBtnSecondary, { borderColor: C.gold }]}>
-                  <Text style={[profSt.friendActionBtnSecondaryText, { color: C.gold }]}>
-                    {lang === 'pt' ? 'Tu' : 'You'}
-                  </Text>
+                <View style={profSt.cleanStatusPill}>
+                  <Text style={profSt.cleanStatusPillText}>{lang === 'pt' ? 'O teu perfil' : 'Your Profile'}</Text>
                 </View>
               ) : isAccepted ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <View style={[profSt.friendActionBtnSecondary, { borderColor: C.gold, paddingHorizontal: 12 }]}>
-                    <Text style={[profSt.friendActionBtnSecondaryText, { color: C.gold }]}>
-                      ✓ {t.alreadyFriends}
-                    </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <View style={profSt.cleanStatusPill}>
+                    <Text style={profSt.cleanStatusPillText}>✓ {t.alreadyFriends}</Text>
                   </View>
                   {friendship ? (
                     <Pressable
@@ -2958,14 +3142,14 @@ function FriendProfileModal({
                         }
                       }}
                       disabled={actionLoading}
-                      style={profSt.friendActionBtnSecondary}
+                      style={profSt.cleanSmallActionBtn}
                     >
-                      <Text style={profSt.friendActionBtnSecondaryText}>{t.removeFriend}</Text>
+                      <Text style={profSt.cleanSmallActionText}>{t.removeFriend}</Text>
                     </Pressable>
                   ) : null}
                 </View>
               ) : isIncoming ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <Pressable
                     onPress={async () => {
                       if (!friendship) return;
@@ -2977,9 +3161,9 @@ function FriendProfileModal({
                       }
                     }}
                     disabled={actionLoading}
-                    style={profSt.friendActionBtn}
+                    style={profSt.cleanAcceptPill}
                   >
-                    <Text style={profSt.friendActionBtnText}>✓ {t.accept}</Text>
+                    <Text style={profSt.cleanAcceptPillText}>✓ {t.accept}</Text>
                   </Pressable>
                   <Pressable
                     onPress={async () => {
@@ -2992,14 +3176,14 @@ function FriendProfileModal({
                       }
                     }}
                     disabled={actionLoading}
-                    style={profSt.friendActionBtnSecondary}
+                    style={profSt.cleanDeclinePill}
                   >
-                    <Text style={profSt.friendActionBtnSecondaryText}>✕</Text>
+                    <Text style={profSt.cleanDeclinePillText}>✕ {t.decline}</Text>
                   </Pressable>
                 </View>
               ) : isOutgoing ? (
-                <View style={profSt.friendActionBtnSecondary}>
-                  <Text style={profSt.friendActionBtnSecondaryText}>⌛ {t.requestSent}</Text>
+                <View style={profSt.cleanStatusPill}>
+                  <Text style={profSt.cleanStatusPillText}>⌛ {t.requestSent}</Text>
                 </View>
               ) : (
                 <Pressable
@@ -3012,9 +3196,9 @@ function FriendProfileModal({
                     }
                   }}
                   disabled={actionLoading}
-                  style={profSt.friendActionBtn}
+                  style={profSt.cleanAddPill}
                 >
-                  <Text style={profSt.friendActionBtnText}>
+                  <Text style={profSt.cleanAddPillText}>
                     {actionLoading ? '...' : `+ ${t.sendRequest}`}
                   </Text>
                 </Pressable>
@@ -3022,72 +3206,58 @@ function FriendProfileModal({
             </View>
           </View>
 
-          {/* Profile Name & Bio */}
-          <View style={profSt.friendProfileInfo}>
-            <Text style={profSt.friendProfileUsername}>{displayedUsername}</Text>
-            {profile.bio ? (
-              <Text style={profSt.friendProfileBio}>{profile.bio}</Text>
-            ) : null}
-          </View>
-
-          {/* Stats Bar */}
-          <View style={profSt.friendProfileStatsRow}>
-            <View style={profSt.friendProfileStatCard}>
-              <Text style={profSt.friendProfileStatValue}>{completedList.length}</Text>
-              <Text style={profSt.friendProfileStatLabel}>{t.watchedSeriesCount}</Text>
+          {/* Clean Stats Row (24 Vistas | 5 A Ver | 142 Eps) */}
+          <View style={profSt.cleanStatsRow}>
+            <View style={profSt.cleanStatCol}>
+              <Text style={profSt.cleanStatNum}>{completedList.length}</Text>
+              <Text style={profSt.cleanStatLbl}>{t.watchedSeriesCount}</Text>
             </View>
-            <View style={profSt.friendProfileStatCard}>
-              <Text style={profSt.friendProfileStatValue}>{watchingList.length}</Text>
-              <Text style={profSt.friendProfileStatLabel}>{t.watchingCount}</Text>
+            <View style={profSt.cleanStatDivider} />
+            <View style={profSt.cleanStatCol}>
+              <Text style={profSt.cleanStatNum}>{watchingList.length}</Text>
+              <Text style={profSt.cleanStatLbl}>{t.currentlyWatching}</Text>
             </View>
-            <View style={profSt.friendProfileStatCard}>
-              <Text style={profSt.friendProfileStatValue}>{totalEpisodes}</Text>
-              <Text style={profSt.friendProfileStatLabel}>{t.episodesWatchedCount}</Text>
+            <View style={profSt.cleanStatDivider} />
+            <View style={profSt.cleanStatCol}>
+              <Text style={profSt.cleanStatNum}>{totalEpisodes}</Text>
+              <Text style={profSt.cleanStatLbl}>{t.epsCount}</Text>
             </View>
-            <View style={profSt.friendProfileStatCard}>
-              <Text style={profSt.friendProfileStatValue}>{watchlist.length}</Text>
-              <Text style={profSt.friendProfileStatLabel}>{t.userWatchlist}</Text>
+            <View style={profSt.cleanStatDivider} />
+            <View style={profSt.cleanStatCol}>
+              <Text style={profSt.cleanStatNum}>{watchlist.length}</Text>
+              <Text style={profSt.cleanStatLbl}>{t.userWatchlist}</Text>
             </View>
           </View>
 
-          {/* Tabs */}
-          <View style={profSt.friendProfileTabs}>
-            <Pressable
-              onPress={() => setActiveTab('completed')}
-              style={[profSt.friendProfileTabBtn, activeTab === 'completed' && profSt.friendProfileTabBtnActive]}
-            >
-              <Text style={[profSt.friendProfileTabBtnText, activeTab === 'completed' && profSt.friendProfileTabBtnTextActive]}>
-                {t.watchedSeriesCount} ({completedList.length})
+          {/* Minimalist Text Tabs (Vistas | A Ver | Todas | Por Ver) */}
+          <View style={profSt.cleanTabsRow}>
+            <Pressable onPress={() => setActiveTab('completed')} style={profSt.cleanTabPressable}>
+              <Text style={[profSt.cleanTabText, activeTab === 'completed' && profSt.cleanTabTextActive]}>
+                {t.watchedSeriesCount}
               </Text>
             </Pressable>
-            <Pressable
-              onPress={() => setActiveTab('watching')}
-              style={[profSt.friendProfileTabBtn, activeTab === 'watching' && profSt.friendProfileTabBtnActive]}
-            >
-              <Text style={[profSt.friendProfileTabBtnText, activeTab === 'watching' && profSt.friendProfileTabBtnTextActive]}>
-                {t.currentlyWatching} ({watchingList.length})
+            <Text style={profSt.cleanTabSep}>|</Text>
+            <Pressable onPress={() => setActiveTab('watching')} style={profSt.cleanTabPressable}>
+              <Text style={[profSt.cleanTabText, activeTab === 'watching' && profSt.cleanTabTextActive]}>
+                {t.currentlyWatching}
               </Text>
             </Pressable>
-            <Pressable
-              onPress={() => setActiveTab('all')}
-              style={[profSt.friendProfileTabBtn, activeTab === 'all' && profSt.friendProfileTabBtnActive]}
-            >
-              <Text style={[profSt.friendProfileTabBtnText, activeTab === 'all' && profSt.friendProfileTabBtnTextActive]}>
-                {t.allSeries} ({series.length})
+            <Text style={profSt.cleanTabSep}>|</Text>
+            <Pressable onPress={() => setActiveTab('all')} style={profSt.cleanTabPressable}>
+              <Text style={[profSt.cleanTabText, activeTab === 'all' && profSt.cleanTabTextActive]}>
+                {t.allSeries}
               </Text>
             </Pressable>
-            <Pressable
-              onPress={() => setActiveTab('watchlist')}
-              style={[profSt.friendProfileTabBtn, activeTab === 'watchlist' && profSt.friendProfileTabBtnActive]}
-            >
-              <Text style={[profSt.friendProfileTabBtnText, activeTab === 'watchlist' && profSt.friendProfileTabBtnTextActive]}>
-                {t.userWatchlist} ({watchlist.length})
+            <Text style={profSt.cleanTabSep}>|</Text>
+            <Pressable onPress={() => setActiveTab('watchlist')} style={profSt.cleanTabPressable}>
+              <Text style={[profSt.cleanTabText, activeTab === 'watchlist' && profSt.cleanTabTextActive]}>
+                {t.userWatchlist}
               </Text>
             </Pressable>
           </View>
 
-          {/* Tab Content */}
-          <View style={{ paddingHorizontal: 16, paddingTop: 14 }}>
+          {/* 3-Column Posters Grid */}
+          <View style={{ paddingHorizontal: 16 }}>
             {loading ? (
               <View style={{ padding: 40, alignItems: 'center' }}>
                 <ActivityIndicator size="large" color={C.gold} />
@@ -3100,7 +3270,7 @@ function FriendProfileModal({
                   <Empty text={t.noCompletedSeries} />
                 </View>
               ) : (
-                <View style={[wlSt.gridRow, { flexWrap: 'wrap', gap }]}>
+                <View style={[wlSt.gridRow, { flexWrap: 'wrap', gap: 8 }]}>
                   {completedList.map((s, idx) => {
                     const isMovie = s.mediaType === 'movie';
                     const watched = s.watchedEpisodes ?? 0;
@@ -3114,11 +3284,11 @@ function FriendProfileModal({
                       <Pressable
                         key={`friend-comp-${s.tmdbId ?? s.title}-${idx}`}
                         onPress={() => onOpenSeries(s)}
-                        style={[wlSt.gridCard, { width: cardWidth }]}
+                        style={[wlSt.gridCard, { width: col3Width }]}
                       >
-                        <View style={wlSt.gridPoster}>
+                        <View style={profSt.cleanGridPoster}>
                           {s.posterPath ? (
-                            <Image source={{ uri: posterUrl(s.posterPath) }} style={wlSt.gridPosterImg} resizeMode="cover" />
+                            <Image source={{ uri: posterUrl(s.posterPath) }} style={profSt.cleanGridPosterImg} resizeMode="cover" />
                           ) : (
                             <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
                           )}
@@ -3126,7 +3296,7 @@ function FriendProfileModal({
                             <Text style={[wlSt.gridEpBadgeText, { color: '#68D391' }]}>{badgeText}</Text>
                           </View>
                         </View>
-                        <Text style={wlSt.gridTitle} numberOfLines={2}>{s.title}</Text>
+                        <Text style={wlSt.gridTitle} numberOfLines={1}>{s.title}</Text>
                         <Text style={[wlSt.gridSubtitle, { color: '#68D391' }]}>{epSub}</Text>
                       </Pressable>
                     );
@@ -3140,7 +3310,7 @@ function FriendProfileModal({
                   <Empty text={t.noWatchingSeries} />
                 </View>
               ) : (
-                <View style={[wlSt.gridRow, { flexWrap: 'wrap', gap }]}>
+                <View style={[wlSt.gridRow, { flexWrap: 'wrap', gap: 8 }]}>
                   {watchingList.map((s, idx) => {
                     const watched = s.watchedEpisodes ?? 0;
                     const badgeText = s.totalEpisodes > 0 ? `${watched}/${s.totalEpisodes}` : `${watched} eps`;
@@ -3149,11 +3319,11 @@ function FriendProfileModal({
                       <Pressable
                         key={`friend-watching-${s.tmdbId ?? s.title}-${idx}`}
                         onPress={() => onOpenSeries(s)}
-                        style={[wlSt.gridCard, { width: cardWidth }]}
+                        style={[wlSt.gridCard, { width: col3Width }]}
                       >
-                        <View style={wlSt.gridPoster}>
+                        <View style={profSt.cleanGridPoster}>
                           {s.posterPath ? (
-                            <Image source={{ uri: posterUrl(s.posterPath) }} style={wlSt.gridPosterImg} resizeMode="cover" />
+                            <Image source={{ uri: posterUrl(s.posterPath) }} style={profSt.cleanGridPosterImg} resizeMode="cover" />
                           ) : (
                             <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
                           )}
@@ -3161,7 +3331,7 @@ function FriendProfileModal({
                             <Text style={wlSt.gridEpBadgeText}>{badgeText}</Text>
                           </View>
                         </View>
-                        <Text style={wlSt.gridTitle} numberOfLines={2}>{s.title}</Text>
+                        <Text style={wlSt.gridTitle} numberOfLines={1}>{s.title}</Text>
                         <Text style={wlSt.gridSubtitle}>{epSub}</Text>
                       </Pressable>
                     );
@@ -3175,7 +3345,7 @@ function FriendProfileModal({
                   <Empty text={t.noCompletedSeries} />
                 </View>
               ) : (
-                <View style={[wlSt.gridRow, { flexWrap: 'wrap', gap }]}>
+                <View style={[wlSt.gridRow, { flexWrap: 'wrap', gap: 8 }]}>
                   {series.map((s, idx) => {
                     const isMovie = s.mediaType === 'movie';
                     const watched = s.watchedEpisodes ?? 0;
@@ -3190,11 +3360,11 @@ function FriendProfileModal({
                       <Pressable
                         key={`friend-all-${s.tmdbId ?? s.title}-${idx}`}
                         onPress={() => onOpenSeries(s)}
-                        style={[wlSt.gridCard, { width: cardWidth }]}
+                        style={[wlSt.gridCard, { width: col3Width }]}
                       >
-                        <View style={wlSt.gridPoster}>
+                        <View style={profSt.cleanGridPoster}>
                           {s.posterPath ? (
-                            <Image source={{ uri: posterUrl(s.posterPath) }} style={wlSt.gridPosterImg} resizeMode="cover" />
+                            <Image source={{ uri: posterUrl(s.posterPath) }} style={profSt.cleanGridPosterImg} resizeMode="cover" />
                           ) : (
                             <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
                           )}
@@ -3202,7 +3372,7 @@ function FriendProfileModal({
                             <Text style={[wlSt.gridEpBadgeText, isDone && { color: '#68D391' }]}>{badgeText}</Text>
                           </View>
                         </View>
-                        <Text style={wlSt.gridTitle} numberOfLines={2}>{s.title}</Text>
+                        <Text style={wlSt.gridTitle} numberOfLines={1}>{s.title}</Text>
                         <Text style={[wlSt.gridSubtitle, isDone && { color: '#68D391' }]}>{epSub}</Text>
                       </Pressable>
                     );
@@ -3216,7 +3386,7 @@ function FriendProfileModal({
                   <Empty text={t.noWatchlistItems} />
                 </View>
               ) : (
-                <View style={[wlSt.gridRow, { flexWrap: 'wrap', gap }]}>
+                <View style={[wlSt.gridRow, { flexWrap: 'wrap', gap: 8 }]}>
                   {watchlist.map((w, idx) => {
                     const isMovie = w.mediaType === 'movie';
                     const epSub = isMovie ? (lang === 'pt' ? 'Filme' : 'Movie') : (lang === 'pt' ? 'Série' : 'Series');
@@ -3224,16 +3394,16 @@ function FriendProfileModal({
                       <Pressable
                         key={`friend-wl-${w.id}-${idx}`}
                         onPress={() => onOpenSeries(w)}
-                        style={[wlSt.gridCard, { width: cardWidth }]}
+                        style={[wlSt.gridCard, { width: col3Width }]}
                       >
-                        <View style={wlSt.gridPoster}>
+                        <View style={profSt.cleanGridPoster}>
                           {w.posterPath ? (
-                            <Image source={{ uri: posterUrl(w.posterPath) }} style={wlSt.gridPosterImg} resizeMode="cover" />
+                            <Image source={{ uri: posterUrl(w.posterPath) }} style={profSt.cleanGridPosterImg} resizeMode="cover" />
                           ) : (
                             <Text style={homeSt.fallbackPosterText}>{w.title.slice(0, 1)}</Text>
                           )}
                         </View>
-                        <Text style={wlSt.gridTitle} numberOfLines={2}>{w.title}</Text>
+                        <Text style={wlSt.gridTitle} numberOfLines={1}>{w.title}</Text>
                         <Text style={wlSt.gridSubtitle}>{epSub}</Text>
                       </Pressable>
                     );
@@ -6932,120 +7102,215 @@ const profSt = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
   },
-  friendProfileBanner: {
+  cleanProfileBanner: {
     width: '100%',
-    height: 140,
-    backgroundColor: C.surface2,
+    height: 150,
+    backgroundColor: '#1C1316',
     position: 'relative',
   },
-  friendProfileBannerImg: {
+  cleanProfileBannerImg: {
     width: '100%',
     height: '100%',
   },
-  friendProfileCloseBtn: {
+  cleanBannerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(16, 12, 13, 0.45)',
+  },
+  cleanCloseBtn: {
     position: 'absolute',
     top: 14,
     right: 14,
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(16, 12, 13, 0.75)',
+    backgroundColor: 'rgba(16, 12, 13, 0.8)',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: C.border,
   },
-  friendProfileHeader: {
-    paddingHorizontal: 16,
-    paddingTop: 0,
-    paddingBottom: 12,
-    marginTop: -38,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
+  cleanAvatarContainer: {
+    alignItems: 'center',
+    marginTop: -42,
   },
-  friendProfileAvatar: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    borderWidth: 3,
+  cleanAvatarRing: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    borderWidth: 2.5,
     borderColor: C.gold,
     backgroundColor: C.surface,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
+    shadowColor: C.gold,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
-  friendProfileAvatarImg: {
+  cleanAvatarImg: {
     width: '100%',
     height: '100%',
   },
-  friendProfileInfo: {
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-  },
-  friendProfileUsername: {
-    fontSize: 20,
+  cleanUsername: {
+    fontSize: 22,
     fontWeight: '800',
     color: C.cream,
+    textAlign: 'center',
     letterSpacing: 0.3,
   },
-  friendProfileBio: {
-    fontSize: 13.5,
+  cleanBio: {
+    fontSize: 13,
     color: C.muted,
+    textAlign: 'center',
     marginTop: 4,
+    paddingHorizontal: 20,
     lineHeight: 18,
   },
-  friendProfileStatsRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    gap: 8,
-    marginVertical: 12,
-  },
-  friendProfileStatCard: {
-    flex: 1,
-    backgroundColor: C.surface,
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 4,
+  cleanPillRow: {
     alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+    marginBottom: 6,
   },
-  friendProfileStatValue: {
-    fontSize: 17,
-    fontWeight: '800',
-    color: C.gold,
-  },
-  friendProfileStatLabel: {
-    fontSize: 10.5,
-    color: C.muted,
-    marginTop: 3,
-    textAlign: 'center',
-    fontWeight: '600',
-  },
-  friendProfileTabs: {
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderColor: C.border,
+  cleanStatusPill: {
+    backgroundColor: 'rgba(196, 163, 90, 0.18)',
+    borderWidth: 1.2,
+    borderColor: C.gold,
+    borderRadius: 20,
     paddingHorizontal: 16,
-    backgroundColor: C.bg,
+    paddingVertical: 5,
   },
-  friendProfileTabBtn: {
-    paddingVertical: 11,
-    paddingHorizontal: 12,
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
+  cleanStatusPillText: {
+    color: C.gold,
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.3,
   },
-  friendProfileTabBtnActive: {
-    borderBottomColor: C.gold,
+  cleanAddPill: {
+    backgroundColor: C.bordeaux,
+    borderWidth: 1,
+    borderColor: C.gold,
+    borderRadius: 20,
+    paddingHorizontal: 18,
+    paddingVertical: 6,
   },
-  friendProfileTabBtnText: {
-    color: C.muted,
+  cleanAddPillText: {
+    color: C.cream,
     fontSize: 13.5,
     fontWeight: '700',
   },
-  friendProfileTabBtnTextActive: {
-    color: C.gold,
+  cleanAcceptPill: {
+    backgroundColor: C.bordeaux,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+  },
+  cleanAcceptPillText: {
+    color: C.cream,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  cleanDeclinePill: {
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+  },
+  cleanDeclinePillText: {
+    color: C.muted,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  cleanSmallActionBtn: {
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+  },
+  cleanSmallActionText: {
+    color: C.muted,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  cleanStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    marginVertical: 18,
+    paddingHorizontal: 16,
+  },
+  cleanStatCol: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  cleanStatNum: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: C.cream,
+    letterSpacing: 0.2,
+  },
+  cleanStatLbl: {
+    fontSize: 12.5,
+    color: C.muted,
+    marginTop: 4,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  cleanStatDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  cleanTabsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    marginBottom: 16,
+    gap: 8,
+  },
+  cleanTabPressable: {
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+  },
+  cleanTabText: {
+    fontSize: 14,
+    color: C.muted,
+    fontWeight: '600',
+  },
+  cleanTabTextActive: {
+    color: C.cream,
+    fontWeight: '800',
+  },
+  cleanTabSep: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.2)',
+    fontWeight: '300',
+  },
+  cleanGridPoster: {
+    width: '100%',
+    aspectRatio: 2 / 3,
+    borderRadius: 10,
+    backgroundColor: C.surface2,
+    overflow: 'hidden',
+    position: 'relative',
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  cleanGridPosterImg: {
+    width: '100%',
+    height: '100%',
   },
 });
 
