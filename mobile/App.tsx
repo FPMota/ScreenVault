@@ -3058,11 +3058,11 @@ function FriendProfileModal({
             </View>
           </View>
 
-          {/* Minimalist Text Tabs (Vistas | A Ver | Todas | Por Ver) */}
+          {/* Minimalist Text Tabs (Todas | A Ver | Por Ver | Visto) */}
           <View style={profSt.cleanTabsRow}>
-            <Pressable onPress={() => setActiveTab('completed')} style={profSt.cleanTabPressable}>
-              <Text style={[profSt.cleanTabText, activeTab === 'completed' && profSt.cleanTabTextActive]}>
-                {t.watchedSeriesCount}
+            <Pressable onPress={() => setActiveTab('all')} style={profSt.cleanTabPressable}>
+              <Text style={[profSt.cleanTabText, activeTab === 'all' && profSt.cleanTabTextActive]}>
+                {t.allSeries}
               </Text>
             </Pressable>
             <Text style={profSt.cleanTabSep}>|</Text>
@@ -3072,15 +3072,15 @@ function FriendProfileModal({
               </Text>
             </Pressable>
             <Text style={profSt.cleanTabSep}>|</Text>
-            <Pressable onPress={() => setActiveTab('all')} style={profSt.cleanTabPressable}>
-              <Text style={[profSt.cleanTabText, activeTab === 'all' && profSt.cleanTabTextActive]}>
-                {t.allSeries}
-              </Text>
-            </Pressable>
-            <Text style={profSt.cleanTabSep}>|</Text>
             <Pressable onPress={() => setActiveTab('watchlist')} style={profSt.cleanTabPressable}>
               <Text style={[profSt.cleanTabText, activeTab === 'watchlist' && profSt.cleanTabTextActive]}>
                 {t.userWatchlist}
+              </Text>
+            </Pressable>
+            <Text style={profSt.cleanTabSep}>|</Text>
+            <Pressable onPress={() => setActiveTab('completed')} style={profSt.cleanTabPressable}>
+              <Text style={[profSt.cleanTabText, activeTab === 'completed' && profSt.cleanTabTextActive]}>
+                {t.watched}
               </Text>
             </Pressable>
           </View>
@@ -3674,57 +3674,18 @@ function Profile({
   onRemoveFriendship?: (friendshipId: string) => Promise<void>;
   onSearchUsers?: (query: string) => Promise<FriendProfile[]>;
 }) {
-  const { numColumns, cardWidth, gap } = useGridMetrics();
+  const { width } = useWindowDimensions();
+  const safeWidth = width && width > 0 ? width : SCREEN_W;
+  const numCols = safeWidth > 1024 ? 6 : safeWidth > 768 ? 4 : 3;
+  const colWidth = Math.floor((safeWidth - 32 - (numCols - 1) * 8) / numCols);
+
   const t = i18n[lang];
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [draftUsername, setDraftUsername] = useState(username);
   const [draftBio, setDraftBio] = useState(bio);
-  type ProfileFilter = 'all' | 'continue' | 'recent' | 'watchlist' | 'watched';
-  const [profileFilter, setProfileFilter] = useState<ProfileFilter>('all');
 
-  const [friendsModalOpen, setFriendsModalOpen] = useState(false);
-  const [friendsTab, setFriendsTab] = useState<'my' | 'add' | 'requests'>('my');
-  const [friendQuery, setFriendQuery] = useState('');
-  const [friendSearching, setFriendSearching] = useState(false);
-  const [userSearchResults, setUserSearchResults] = useState<FriendProfile[]>([]);
-  const [requestSendingId, setRequestSendingId] = useState<string | null>(null);
-  const [viewingProfile, setViewingProfile] = useState<FriendProfile | null>(null);
-
-  const acceptedFriends = useMemo(
-    () => (friends || []).filter((f) => f.status === 'accepted'),
-    [friends],
-  );
-
-  const pendingIncoming = useMemo(
-    () => (friends || []).filter((f) => f.status === 'pending' && f.friendId === currentUserId),
-    [friends, currentUserId],
-  );
-
-  const pendingOutgoing = useMemo(
-    () => (friends || []).filter((f) => f.status === 'pending' && f.userId === currentUserId),
-    [friends, currentUserId],
-  );
-
-  useEffect(() => {
-    const q = friendQuery.trim();
-    if (q.length < 2) {
-      setUserSearchResults([]);
-      setFriendSearching(false);
-      return;
-    }
-    setFriendSearching(true);
-    const timer = setTimeout(() => {
-      if (onSearchUsers) {
-        onSearchUsers(q)
-          .then((res) => setUserSearchResults(res))
-          .catch(() => setUserSearchResults([]))
-          .finally(() => setFriendSearching(false));
-      } else {
-        setFriendSearching(false);
-      }
-    }, 350);
-    return () => clearTimeout(timer);
-  }, [friendQuery, onSearchUsers]);
+  type ProfileTab = 'all' | 'watching' | 'watchlist' | 'watched';
+  const [activeTab, setActiveTab] = useState<ProfileTab>('all');
 
   useEffect(() => {
     setDraftUsername(username);
@@ -3734,1124 +3695,306 @@ function Profile({
     setDraftBio(bio);
   }, [bio]);
 
-  const [seeAllModal, setSeeAllModal] = useState<{
-    visible: boolean;
-    title: string;
-    items: (Series | TmdbResult)[];
-  }>({ visible: false, title: '', items: [] });
+  const acceptedFriends = useMemo(
+    () => (friends || []).filter((f) => f.status === 'accepted'),
+    [friends],
+  );
 
-  const seriesWatched = library.filter((s) => progress(s) >= s.totalEpisodes && s.totalEpisodes > 0).length;
-  const episodesWatched = library.reduce((sum, s) => sum + progress(s), 0);
-  const seriesRemaining = library.filter((s) => progress(s) < s.totalEpisodes && s.collection !== 'up_to_date').length;
-  const episodesRemaining = library.reduce((sum, s) => sum + Math.max(0, s.totalEpisodes - progress(s)), 0);
-  const toWatch = watchlist.length;
+  const isSeriesCompleted = (s: Series) => {
+    if (s.collection === 'up_to_date') return true;
+    if (s.mediaType === 'movie') return progress(s) >= 1;
+    return progress(s) >= s.totalEpisodes && s.totalEpisodes > 0;
+  };
 
-  // Continue watching list (sorted by lastWatched)
-  const continueWatching = useMemo(() =>
-    library
-      .filter((s) => s.collection === 'watching' && progress(s) < s.totalEpisodes && progress(s) > 0)
-      .sort((a, b) => lastWatched(b) - lastWatched(a)),
+  const completedSeries = useMemo(
+    () => library.filter(isSeriesCompleted),
+    [library],
+  );
+
+  const continueWatching = useMemo(
+    () =>
+      library
+        .filter((s) => !isSeriesCompleted(s) && (progress(s) > 0 || s.collection === 'watching' || s.collection === 'finished_airing_to_continue'))
+        .sort((a, b) => lastWatched(b) - lastWatched(a)),
     [library, progress, lastWatched],
   );
 
-  // Recent activity list
-  const recentActivity = useMemo(() =>
-    library
-      .filter((s) => lastWatched(s) > 0)
-      .sort((a, b) => lastWatched(b) - lastWatched(a)),
-    [library, lastWatched],
-  );
-
-  // Completed / watched series
-  const completedSeries = useMemo(() =>
-    library.filter((s) => progress(s) >= s.totalEpisodes && s.totalEpisodes > 0),
-    [library, progress],
-  );
+  const displayedUsername = username ? `@${username}` : (email ? `@${email.split('@')[0]}` : '@user');
 
   return (
     <View style={styles.flex}>
       <ScrollView
-        contentContainerStyle={profSt.scrollContent}
+        contentContainerStyle={{ paddingBottom: 110 }}
         showsVerticalScrollIndicator={false}
         overScrollMode="always"
         bounces
       >
-        {/* Banner Area (wrapping Header, Avatar, Username, Bio, Edit Profile & Fading out towards bottom) */}
-        <View style={profSt.bannerContainer}>
+        {/* Top Banner with Settings Gear */}
+        <View style={profSt.cleanProfileBanner}>
           {banner ? (
-            <View style={StyleSheet.absoluteFill} pointerEvents="none">
-              <Image source={{ uri: banner }} style={profSt.bannerImage} resizeMode="cover" />
-              {/* Fade gradient overlay before entering dashBar */}
-              <View
-                style={[
-                  profSt.bannerGradient,
-                  Platform.OS === 'web' && ({
-                    backgroundImage:
-                      'linear-gradient(to bottom, rgba(16, 12, 13, 0.25) 0%, rgba(16, 12, 13, 0.45) 45%, rgba(16, 12, 13, 0.8) 75%, rgba(16, 12, 13, 0.98) 95%, #100C0D 100%)',
-                  } as any),
-                ]}
-              />
-              <svg
-                width="100%"
-                height="100%"
-                preserveAspectRatio="none"
-                viewBox="0 0 100 100"
-                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
-              >
-                <defs>
-                  <linearGradient id="bannerBottomFade" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#100C0D" stopOpacity="0.25" />
-                    <stop offset="45%" stopColor="#100C0D" stopOpacity="0.45" />
-                    <stop offset="75%" stopColor="#100C0D" stopOpacity="0.85" />
-                    <stop offset="95%" stopColor="#100C0D" stopOpacity="0.98" />
-                    <stop offset="100%" stopColor="#100C0D" stopOpacity="1" />
-                  </linearGradient>
-                </defs>
-                <rect width="100" height="100" fill="url(#bannerBottomFade)" />
-              </svg>
-            </View>
-          ) : null}
+            <Image source={{ uri: banner }} style={profSt.cleanProfileBannerImg} resizeMode="cover" />
+          ) : (
+            <View style={[profSt.cleanProfileBannerImg, { backgroundColor: '#1C1316' }]} />
+          )}
+          <View style={profSt.cleanBannerOverlay} />
 
-          {/* Header Row over the cover banner */}
+          {/* Header Controls Over Banner */}
           <View style={profSt.headerRowOverBanner}>
             <Text style={profSt.headerTitle}>{t.profile}</Text>
             <Pressable onPress={onOpenSettings} style={profSt.gearButton} hitSlop={10}>
               <Text style={profSt.gearIcon}>⚙</Text>
             </Pressable>
           </View>
+        </View>
 
-          {/* Clean Avatar Display (photo change controls are inside the gear ⚙) */}
-          <View style={profSt.avatarDisplayWrapper}>
+        {/* Centered Circular Avatar with Gold Ring */}
+        <View style={profSt.cleanAvatarContainer}>
+          <View style={profSt.cleanAvatarRing}>
             {avatar ? (
-              <Image source={{ uri: avatar }} style={profSt.avatar} />
+              <Image source={{ uri: avatar }} style={profSt.cleanAvatarImg} />
             ) : (
-              <View style={profSt.avatarPlaceholder}>
-                <Text style={profSt.avatarIcon}>👤</Text>
-              </View>
+              <Text style={{ fontSize: 34 }}>👤</Text>
             )}
           </View>
+        </View>
 
-          {/* User Info (Username, Bio, Edit Profile button) */}
-          <View style={profSt.userInfoContainer}>
-            <Text style={profSt.usernameText}>
-              {username ? `@${username}` : (email ? `@${email.split('@')[0]}` : '@user')}
-            </Text>
-            {bio ? <Text style={profSt.bioText}>{bio}</Text> : null}
+        {/* Centered Username & Bio */}
+        <View style={{ alignItems: 'center', marginTop: 10, paddingHorizontal: 20 }}>
+          <Text style={profSt.cleanUsername}>{displayedUsername}</Text>
+          {bio ? (
+            <Text style={profSt.cleanBio} numberOfLines={3}>{bio}</Text>
+          ) : null}
+
+          {/* Centered Action Pill (Editar Perfil) */}
+          <View style={profSt.cleanPillRow}>
             <Pressable
               onPress={() => {
                 setDraftUsername(username);
                 setDraftBio(bio);
                 setEditModalOpen(true);
               }}
-              style={profSt.editProfileBtn}
+              style={profSt.cleanStatusPill}
             >
-              <Text style={profSt.editProfileBtnText}>✎ {t.editProfile}</Text>
+              <Text style={profSt.cleanStatusPillText}>✎ {t.editProfile}</Text>
             </Pressable>
           </View>
         </View>
 
-        {/* Ultra-compact Dashboard line: Séries Vistas, Séries por Acabar, Watchlist, Amigos */}
-        <View style={profSt.dashBar}>
-          <Pressable onPress={() => setProfileFilter(profileFilter === 'watched' ? 'all' : 'watched')} style={profSt.dashItem}>
-            <Text style={[profSt.dashNumber, profileFilter === 'watched' && { color: C.gold }]}>{seriesWatched}</Text>
-            <Text style={[profSt.dashLabel, profileFilter === 'watched' && { color: C.gold }]} numberOfLines={1}>{t.seriesWatched}</Text>
+        {/* Clean Open Stats Row (Vistas | A Ver | Por Ver | Amigos) */}
+        <View style={profSt.cleanStatsRow}>
+          <Pressable onPress={() => setActiveTab('watched')} style={profSt.cleanStatCol}>
+            <Text style={profSt.cleanStatNum}>{completedSeries.length}</Text>
+            <Text style={profSt.cleanStatLbl}>{t.watched}</Text>
           </Pressable>
-          <View style={profSt.dashSep} />
-          <Pressable onPress={() => setProfileFilter(profileFilter === 'continue' ? 'all' : 'continue')} style={profSt.dashItem}>
-            <Text style={[profSt.dashNumber, profileFilter === 'continue' && { color: C.gold }]}>{seriesRemaining}</Text>
-            <Text style={[profSt.dashLabel, profileFilter === 'continue' && { color: C.gold }]} numberOfLines={1}>{t.seriesToFinish}</Text>
+          <View style={profSt.cleanStatDivider} />
+          <Pressable onPress={() => setActiveTab('watching')} style={profSt.cleanStatCol}>
+            <Text style={profSt.cleanStatNum}>{continueWatching.length}</Text>
+            <Text style={profSt.cleanStatLbl}>{t.currentlyWatching}</Text>
           </Pressable>
-          <View style={profSt.dashSep} />
-          <Pressable onPress={() => setProfileFilter(profileFilter === 'watchlist' ? 'all' : 'watchlist')} style={profSt.dashItem}>
-            <Text style={[profSt.dashNumber, profileFilter === 'watchlist' && { color: C.gold }]}>{toWatch}</Text>
-            <Text style={[profSt.dashLabel, profileFilter === 'watchlist' && { color: C.gold }]} numberOfLines={1}>{t.onWatchlist}</Text>
+          <View style={profSt.cleanStatDivider} />
+          <Pressable onPress={() => setActiveTab('watchlist')} style={profSt.cleanStatCol}>
+            <Text style={profSt.cleanStatNum}>{watchlist.length}</Text>
+            <Text style={profSt.cleanStatLbl}>{t.userWatchlist}</Text>
           </Pressable>
-          <View style={profSt.dashSep} />
-          <Pressable onPress={() => onNavigateTab('friends')} style={profSt.dashItem}>
-            <Text style={profSt.dashNumber}>{acceptedFriends.length}</Text>
-            <Text style={profSt.dashLabel} numberOfLines={1}>{t.friends}</Text>
+          <View style={profSt.cleanStatDivider} />
+          <Pressable onPress={() => onNavigateTab('friends')} style={profSt.cleanStatCol}>
+            <Text style={profSt.cleanStatNum}>{acceptedFriends.length}</Text>
+            <Text style={profSt.cleanStatLbl}>{t.friends}</Text>
           </Pressable>
         </View>
 
-        {/* Minimalist Profile Filter Tabs (Todas | Continuar a Ver | Atividade Recente | Por Ver | Séries Vistas) */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={[profSt.cleanTabsRow, { paddingHorizontal: 16 }]}
-          style={{ marginTop: 20, marginBottom: 6 }}
-        >
-          <Pressable onPress={() => setProfileFilter('all')} style={profSt.cleanTabPressable}>
-            <Text style={[profSt.cleanTabText, profileFilter === 'all' && profSt.cleanTabTextActive]}>
+        {/* Minimalist Text Tabs: Todas | A Ver | Por Ver | Visto */}
+        <View style={profSt.cleanTabsRow}>
+          <Pressable onPress={() => setActiveTab('all')} style={profSt.cleanTabPressable}>
+            <Text style={[profSt.cleanTabText, activeTab === 'all' && profSt.cleanTabTextActive]}>
               {t.allSeries}
             </Text>
           </Pressable>
           <Text style={profSt.cleanTabSep}>|</Text>
 
-          <Pressable onPress={() => setProfileFilter('continue')} style={profSt.cleanTabPressable}>
-            <Text style={[profSt.cleanTabText, profileFilter === 'continue' && profSt.cleanTabTextActive]}>
-              {t.continueWatching}
+          <Pressable onPress={() => setActiveTab('watching')} style={profSt.cleanTabPressable}>
+            <Text style={[profSt.cleanTabText, activeTab === 'watching' && profSt.cleanTabTextActive]}>
+              {t.currentlyWatching}
             </Text>
           </Pressable>
           <Text style={profSt.cleanTabSep}>|</Text>
 
-          <Pressable onPress={() => setProfileFilter('recent')} style={profSt.cleanTabPressable}>
-            <Text style={[profSt.cleanTabText, profileFilter === 'recent' && profSt.cleanTabTextActive]}>
-              {t.recentActivity}
-            </Text>
-          </Pressable>
-          <Text style={profSt.cleanTabSep}>|</Text>
-
-          <Pressable onPress={() => setProfileFilter('watchlist')} style={profSt.cleanTabPressable}>
-            <Text style={[profSt.cleanTabText, profileFilter === 'watchlist' && profSt.cleanTabTextActive]}>
+          <Pressable onPress={() => setActiveTab('watchlist')} style={profSt.cleanTabPressable}>
+            <Text style={[profSt.cleanTabText, activeTab === 'watchlist' && profSt.cleanTabTextActive]}>
               {t.userWatchlist}
             </Text>
           </Pressable>
           <Text style={profSt.cleanTabSep}>|</Text>
 
-          <Pressable onPress={() => setProfileFilter('watched')} style={profSt.cleanTabPressable}>
-            <Text style={[profSt.cleanTabText, profileFilter === 'watched' && profSt.cleanTabTextActive]}>
-              {t.seriesWatched}
+          <Pressable onPress={() => setActiveTab('watched')} style={profSt.cleanTabPressable}>
+            <Text style={[profSt.cleanTabText, activeTab === 'watched' && profSt.cleanTabTextActive]}>
+              {t.watched}
             </Text>
           </Pressable>
-        </ScrollView>
+        </View>
 
-        {/* Profile Content Rendered by Selected Filter */}
-        {profileFilter === 'all' ? (
-          <>
-            {/* 1. Continuar a Ver */}
-            <View style={{ marginTop: 14 }}>
-              <View style={profSt.sectionBar}>
-                <Text style={styles.sectionHeader}>{t.continueWatching}</Text>
-                <Pressable
-                  onPress={() =>
-                    setSeeAllModal({
-                      visible: true,
-                      title: t.continueWatching,
-                      items: continueWatching,
-                    })
-                  }
-                  style={profSt.seeAllBtn}
-                >
-                  <Text style={profSt.seeAllText}>{t.seeAll} ›</Text>
-                </Pressable>
+        {/* Clean Posters Grid */}
+        <View style={{ paddingHorizontal: 16 }}>
+          {activeTab === 'all' ? (
+            library.length === 0 ? (
+              <View style={{ marginTop: 24, alignItems: 'center' }}>
+                <Text style={{ fontSize: 32, marginBottom: 8 }}>📺</Text>
+                <Empty text={t.noCompletedSeries} />
               </View>
-
-              {continueWatching.length > 0 ? (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  overScrollMode="always"
-                  bounces
-                  contentContainerStyle={profSt.hCardRow}
-                  style={{ marginHorizontal: -22, marginTop: 8 }}
-                >
-                  {continueWatching.slice(0, 6).map((s) => {
-                    const watched = progress(s);
-                    const isMovie = s.mediaType === 'movie';
-                    const epSub = isMovie
-                      ? (watched >= 1 ? (lang === 'pt' ? 'Filme · Visto' : 'Movie · Watched') : (lang === 'pt' ? 'Filme' : 'Movie'))
-                      : `${watched}/${s.totalEpisodes} ${lang === 'pt' ? 'eps' : 'eps'}`;
-                    const badgeText = isMovie ? (lang === 'pt' ? 'Filme' : 'Movie') : `${watched}/${s.totalEpisodes}`;
-
-                    return (
-                      <Pressable
-                        key={`prof-cw-${s.mediaType}-${s.tmdbId ?? s.title}`}
-                        onPress={() => open(s)}
-                        style={profSt.hCard}
-                      >
-                        <View style={profSt.hPoster}>
-                          {s.posterPath ? (
-                            <Image source={{ uri: posterUrl(s.posterPath) }} style={profSt.hPosterImg} resizeMode="cover" />
-                          ) : (
-                            <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
-                          )}
-                          <View style={homeSt.epBadge}>
-                            <Text style={homeSt.epBadgeText}>{badgeText}</Text>
-                          </View>
-                        </View>
-                        <Text style={profSt.hTitle} numberOfLines={1}>{s.title}</Text>
-                        <Text style={profSt.hSubtitle}>{epSub}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              ) : (
-                <View style={homeSt.emptySectionCard}>
-                  <Text style={homeSt.emptySectionText}>
-                    {lang === 'pt' ? 'Nenhuma série a decorrer.' : 'No series in progress.'}
-                  </Text>
-                </View>
-              )}
-            </View>
-
-            {/* 2. Atividade Recente */}
-            <View style={{ marginTop: 22 }}>
-              <View style={profSt.sectionBar}>
-                <Text style={styles.sectionHeader}>{t.recentActivity}</Text>
-                <Pressable
-                  onPress={() =>
-                    setSeeAllModal({
-                      visible: true,
-                      title: t.recentActivity,
-                      items: recentActivity,
-                    })
-                  }
-                  style={profSt.seeAllBtn}
-                >
-                  <Text style={profSt.seeAllText}>{t.seeAll} ›</Text>
-                </Pressable>
-              </View>
-
-              {recentActivity.length > 0 ? (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  overScrollMode="always"
-                  bounces
-                  contentContainerStyle={profSt.hCardRow}
-                  style={{ marginHorizontal: -22, marginTop: 8 }}
-                >
-                  {recentActivity.slice(0, 6).map((s) => {
-                    const watched = progress(s);
-                    const isMovie = s.mediaType === 'movie';
-                    const isDone = !isMovie && s.totalEpisodes > 0 && watched >= s.totalEpisodes;
-                    const epSub = isMovie
-                      ? (watched >= 1 ? (lang === 'pt' ? 'Filme · Visto' : 'Movie · Watched') : (lang === 'pt' ? 'Filme' : 'Movie'))
-                      : `${watched}/${s.totalEpisodes} ${lang === 'pt' ? 'eps' : 'eps'}${isDone ? ' ✓' : ''}`;
-                    const badgeText = isMovie ? (lang === 'pt' ? 'Filme' : 'Movie') : `${watched}/${s.totalEpisodes}`;
-
-                    return (
-                      <Pressable
-                        key={`prof-ra-${s.mediaType}-${s.tmdbId ?? s.title}`}
-                        onPress={() => open(s)}
-                        style={profSt.hCard}
-                      >
-                        <View style={profSt.hPoster}>
-                          {s.posterPath ? (
-                            <Image source={{ uri: posterUrl(s.posterPath) }} style={profSt.hPosterImg} resizeMode="cover" />
-                          ) : (
-                            <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
-                          )}
-                          <View style={[homeSt.epBadge, isDone && { borderColor: '#2E7D32' }]}>
-                            <Text style={[homeSt.epBadgeText, isDone && { color: '#68D391' }]}>{badgeText}</Text>
-                          </View>
-                        </View>
-                        <Text style={profSt.hTitle} numberOfLines={1}>{s.title}</Text>
-                        <Text style={[profSt.hSubtitle, isDone && { color: '#68D391' }]}>{epSub}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              ) : (
-                <View style={homeSt.emptySectionCard}>
-                  <Text style={homeSt.emptySectionText}>
-                    {lang === 'pt' ? 'Sem atividade recente.' : 'No recent activity.'}
-                  </Text>
-                </View>
-              )}
-            </View>
-
-            {/* 3. Por Ver / Watchlist */}
-            <View style={{ marginTop: 22 }}>
-              <View style={profSt.sectionBar}>
-                <Text style={styles.sectionHeader}>{t.userWatchlist}</Text>
-                <Pressable
-                  onPress={() =>
-                    setSeeAllModal({
-                      visible: true,
-                      title: t.userWatchlist,
-                      items: watchlist,
-                    })
-                  }
-                  style={profSt.seeAllBtn}
-                >
-                  <Text style={profSt.seeAllText}>{t.seeAll} ›</Text>
-                </Pressable>
-              </View>
-
-              {watchlist.length > 0 ? (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  overScrollMode="always"
-                  bounces
-                  contentContainerStyle={profSt.hCardRow}
-                  style={{ marginHorizontal: -22, marginTop: 8 }}
-                >
-                  {watchlist.slice(0, 6).map((w) => {
-                    const libMatch = library.find(
-                      (s) =>
-                        (w.id && s.tmdbId === w.id) ||
-                        (w.title && s.title.trim().toLowerCase() === w.title.trim().toLowerCase())
-                    );
-                    const epCount = libMatch?.totalEpisodes ?? w.totalEpisodes;
-                    const epWatched = libMatch ? progress(libMatch) : 0;
-                    const isMovie = w.mediaType === 'movie';
-                    const epSub = isMovie
-                      ? (lang === 'pt' ? 'Filme' : 'Movie')
-                      : (epCount ? (epWatched > 0 ? `${epWatched}/${epCount} eps` : `${epCount} eps`) : (lang === 'pt' ? 'Série' : 'Series'));
-                    const badgeText = isMovie
-                      ? (lang === 'pt' ? 'Filme' : 'Movie')
-                      : (epCount ? (epWatched > 0 ? `${epWatched}/${epCount}` : `${epCount} eps`) : null);
-
-                    return (
-                      <Pressable
-                        key={`prof-wl-${w.mediaType}-${w.id}`}
-                        onPress={() => open(w)}
-                        style={profSt.hCard}
-                      >
-                        <View style={profSt.hPoster}>
-                          {w.posterPath ? (
-                            <Image source={{ uri: posterUrl(w.posterPath) }} style={profSt.hPosterImg} resizeMode="cover" />
-                          ) : (
-                            <Text style={homeSt.fallbackPosterText}>{w.title.slice(0, 1)}</Text>
-                          )}
-                          {badgeText ? (
-                            <View style={homeSt.epBadge}>
-                              <Text style={homeSt.epBadgeText}>{badgeText}</Text>
-                            </View>
-                          ) : null}
-                        </View>
-                        <Text style={profSt.hTitle} numberOfLines={1}>{w.title}</Text>
-                        <Text style={profSt.hSubtitle}>{epSub}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              ) : (
-                <View style={homeSt.emptySectionCard}>
-                  <Text style={homeSt.emptySectionText}>
-                    {lang === 'pt' ? 'A tua watchlist está vazia.' : 'Your watchlist is empty.'}
-                  </Text>
-                </View>
-              )}
-            </View>
-
-            {/* 4. Séries Vistas */}
-            <View style={{ marginTop: 22 }}>
-              <View style={profSt.sectionBar}>
-                <Text style={styles.sectionHeader}>{t.seriesWatched}</Text>
-                <Pressable
-                  onPress={() =>
-                    setSeeAllModal({
-                      visible: true,
-                      title: t.seriesWatched,
-                      items: completedSeries,
-                    })
-                  }
-                  style={profSt.seeAllBtn}
-                >
-                  <Text style={profSt.seeAllText}>{t.seeAll} ›</Text>
-                </Pressable>
-              </View>
-
-              {completedSeries.length > 0 ? (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  overScrollMode="always"
-                  bounces
-                  contentContainerStyle={profSt.hCardRow}
-                  style={{ marginHorizontal: -22, marginTop: 8 }}
-                >
-                  {completedSeries.slice(0, 6).map((s) => {
-                    const isMovie = s.mediaType === 'movie';
-                    const epSub = isMovie
-                      ? (lang === 'pt' ? 'Filme · Visto' : 'Movie · Watched')
-                      : `${s.totalEpisodes}/${s.totalEpisodes} ${lang === 'pt' ? 'eps' : 'eps'} ✓`;
-                    const badgeText = isMovie ? (lang === 'pt' ? 'Filme' : 'Movie') : `${s.totalEpisodes}/${s.totalEpisodes}`;
-
-                    return (
-                      <Pressable
-                        key={`prof-comp-${s.mediaType}-${s.tmdbId ?? s.title}`}
-                        onPress={() => open(s)}
-                        style={profSt.hCard}
-                      >
-                        <View style={profSt.hPoster}>
-                          {s.posterPath ? (
-                            <Image source={{ uri: posterUrl(s.posterPath) }} style={profSt.hPosterImg} resizeMode="cover" />
-                          ) : (
-                            <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
-                          )}
-                          <View style={[homeSt.epBadge, { borderColor: '#2E7D32' }]}>
-                            <Text style={[homeSt.epBadgeText, { color: '#68D391' }]}>{badgeText}</Text>
-                          </View>
-                        </View>
-                        <Text style={profSt.hTitle} numberOfLines={1}>{s.title}</Text>
-                        <Text style={[profSt.hSubtitle, { color: '#68D391' }]}>{epSub}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              ) : (
-                <View style={homeSt.emptySectionCard}>
-                  <Text style={homeSt.emptySectionText}>
-                    {lang === 'pt' ? 'Ainda não terminaste nenhuma série.' : 'No completed series yet.'}
-                  </Text>
-                </View>
-              )}
-            </View>
-          </>
-        ) : profileFilter === 'continue' ? (
-          /* Filter: Continuar a Ver */
-          <View style={{ marginTop: 14 }}>
-            <View style={profSt.sectionBar}>
-              <Text style={styles.sectionHeader}>{t.continueWatching} ({continueWatching.length})</Text>
-            </View>
-            {continueWatching.length > 0 ? (
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14, marginTop: 10 }}>
-                {continueWatching.map((s) => {
+            ) : (
+              <View style={[wlSt.gridRow, { flexWrap: 'wrap', gap: 8 }]}>
+                {library.map((s, idx) => {
                   const watched = progress(s);
                   const isMovie = s.mediaType === 'movie';
+                  const isDone = isSeriesCompleted(s);
+                  const badgeText = isMovie
+                    ? (watched > 0 ? (lang === 'pt' ? 'Filme · Visto' : 'Movie · Watched') : (lang === 'pt' ? 'Filme' : 'Movie'))
+                    : (s.totalEpisodes > 0 ? `${watched}/${s.totalEpisodes}` : `${watched} eps`);
                   const epSub = isMovie
-                    ? (watched >= 1 ? (lang === 'pt' ? 'Filme · Visto' : 'Movie · Watched') : (lang === 'pt' ? 'Filme' : 'Movie'))
-                    : `${watched}/${s.totalEpisodes} ${lang === 'pt' ? 'eps' : 'eps'}`;
-                  const badgeText = isMovie ? (lang === 'pt' ? 'Filme' : 'Movie') : `${watched}/${s.totalEpisodes}`;
+                    ? (watched > 0 ? (lang === 'pt' ? 'Filme · Visto' : 'Movie · Watched') : (lang === 'pt' ? 'Filme' : 'Movie'))
+                    : (s.totalEpisodes > 0 ? `${watched}/${s.totalEpisodes} eps${isDone ? ' ✓' : ''}` : `${watched} eps`);
                   return (
                     <Pressable
-                      key={`prof-flt-cw-${s.mediaType}-${s.tmdbId ?? s.title}`}
+                      key={`prof-grid-all-${s.mediaType}-${s.tmdbId ?? s.title}-${idx}`}
                       onPress={() => open(s)}
-                      style={profSt.hCard}
+                      style={[wlSt.gridCard, { width: colWidth }]}
                     >
-                      <View style={profSt.hPoster}>
+                      <View style={profSt.cleanGridPoster}>
                         {s.posterPath ? (
-                          <Image source={{ uri: posterUrl(s.posterPath) }} style={profSt.hPosterImg} resizeMode="cover" />
+                          <Image source={{ uri: posterUrl(s.posterPath) }} style={profSt.cleanGridPosterImg} resizeMode="cover" />
                         ) : (
                           <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
                         )}
-                        <View style={homeSt.epBadge}>
-                          <Text style={homeSt.epBadgeText}>{badgeText}</Text>
+                        <View style={[wlSt.gridEpBadge, isDone && { borderColor: '#2E7D32' }]}>
+                          <Text style={[wlSt.gridEpBadgeText, isDone && { color: '#68D391' }]}>{badgeText}</Text>
                         </View>
                       </View>
-                      <Text style={profSt.hTitle} numberOfLines={1}>{s.title}</Text>
-                      <Text style={profSt.hSubtitle}>{epSub}</Text>
+                      <Text style={wlSt.gridTitle} numberOfLines={1}>{s.title}</Text>
+                      <Text style={[wlSt.gridSubtitle, isDone && { color: '#68D391' }]}>{epSub}</Text>
                     </Pressable>
                   );
                 })}
               </View>
-            ) : (
-              <View style={homeSt.emptySectionCard}>
-                <Text style={homeSt.emptySectionText}>
-                  {lang === 'pt' ? 'Nenhuma série a decorrer.' : 'No series in progress.'}
-                </Text>
+            )
+          ) : activeTab === 'watching' ? (
+            continueWatching.length === 0 ? (
+              <View style={{ marginTop: 24, alignItems: 'center' }}>
+                <Text style={{ fontSize: 32, marginBottom: 8 }}>🎬</Text>
+                <Empty text={t.noWatchingSeries} />
               </View>
-            )}
-          </View>
-        ) : profileFilter === 'recent' ? (
-          /* Filter: Atividade Recente */
-          <View style={{ marginTop: 14 }}>
-            <View style={profSt.sectionBar}>
-              <Text style={styles.sectionHeader}>{t.recentActivity} ({recentActivity.length})</Text>
-            </View>
-            {recentActivity.length > 0 ? (
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14, marginTop: 10 }}>
-                {recentActivity.map((s) => {
+            ) : (
+              <View style={[wlSt.gridRow, { flexWrap: 'wrap', gap: 8 }]}>
+                {continueWatching.map((s, idx) => {
                   const watched = progress(s);
                   const isMovie = s.mediaType === 'movie';
-                  const isDone = !isMovie && s.totalEpisodes > 0 && watched >= s.totalEpisodes;
-                  const epSub = isMovie
-                    ? (watched >= 1 ? (lang === 'pt' ? 'Filme · Visto' : 'Movie · Watched') : (lang === 'pt' ? 'Filme' : 'Movie'))
-                    : `${watched}/${s.totalEpisodes} ${lang === 'pt' ? 'eps' : 'eps'}${isDone ? ' ✓' : ''}`;
-                  const badgeText = isMovie ? (lang === 'pt' ? 'Filme' : 'Movie') : `${watched}/${s.totalEpisodes}`;
-                  return (
-                    <Pressable
-                      key={`prof-flt-ra-${s.mediaType}-${s.tmdbId ?? s.title}`}
-                      onPress={() => open(s)}
-                      style={profSt.hCard}
-                    >
-                      <View style={profSt.hPoster}>
-                        {s.posterPath ? (
-                          <Image source={{ uri: posterUrl(s.posterPath) }} style={profSt.hPosterImg} resizeMode="cover" />
-                        ) : (
-                          <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
-                        )}
-                        <View style={[homeSt.epBadge, isDone && { borderColor: '#2E7D32' }]}>
-                          <Text style={[homeSt.epBadgeText, isDone && { color: '#68D391' }]}>{badgeText}</Text>
-                        </View>
-                      </View>
-                      <Text style={profSt.hTitle} numberOfLines={1}>{s.title}</Text>
-                      <Text style={[profSt.hSubtitle, isDone && { color: '#68D391' }]}>{epSub}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            ) : (
-              <View style={homeSt.emptySectionCard}>
-                <Text style={homeSt.emptySectionText}>
-                  {lang === 'pt' ? 'Sem atividade recente.' : 'No recent activity.'}
-                </Text>
-              </View>
-            )}
-          </View>
-        ) : profileFilter === 'watchlist' ? (
-          /* Filter: Por Ver / Watchlist */
-          <View style={{ marginTop: 14 }}>
-            <View style={profSt.sectionBar}>
-              <Text style={styles.sectionHeader}>{t.userWatchlist} ({watchlist.length})</Text>
-            </View>
-            {watchlist.length > 0 ? (
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14, marginTop: 10 }}>
-                {watchlist.map((w) => {
-                  const libMatch = library.find(
-                    (s) =>
-                      (w.id && s.tmdbId === w.id) ||
-                      (w.title && s.title.trim().toLowerCase() === w.title.trim().toLowerCase())
-                  );
-                  const epCount = libMatch?.totalEpisodes ?? w.totalEpisodes;
-                  const epWatched = libMatch ? progress(libMatch) : 0;
-                  const isMovie = w.mediaType === 'movie';
-                  const epSub = isMovie
-                    ? (lang === 'pt' ? 'Filme' : 'Movie')
-                    : (epCount ? (epWatched > 0 ? `${epWatched}/${epCount} eps` : `${epCount} eps`) : (lang === 'pt' ? 'Série' : 'Series'));
                   const badgeText = isMovie
                     ? (lang === 'pt' ? 'Filme' : 'Movie')
-                    : (epCount ? (epWatched > 0 ? `${epWatched}/${epCount}` : `${epCount} eps`) : null);
+                    : (s.totalEpisodes > 0 ? `${watched}/${s.totalEpisodes}` : `${watched} eps`);
+                  const epSub = isMovie
+                    ? (lang === 'pt' ? 'Filme' : 'Movie')
+                    : (s.totalEpisodes > 0 ? `${watched}/${s.totalEpisodes} eps` : `${watched} eps`);
                   return (
                     <Pressable
-                      key={`prof-flt-wl-${w.mediaType}-${w.id}`}
-                      onPress={() => open(w)}
-                      style={profSt.hCard}
+                      key={`prof-grid-watching-${s.mediaType}-${s.tmdbId ?? s.title}-${idx}`}
+                      onPress={() => open(s)}
+                      style={[wlSt.gridCard, { width: colWidth }]}
                     >
-                      <View style={profSt.hPoster}>
+                      <View style={profSt.cleanGridPoster}>
+                        {s.posterPath ? (
+                          <Image source={{ uri: posterUrl(s.posterPath) }} style={profSt.cleanGridPosterImg} resizeMode="cover" />
+                        ) : (
+                          <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
+                        )}
+                        <View style={wlSt.gridEpBadge}>
+                          <Text style={wlSt.gridEpBadgeText}>{badgeText}</Text>
+                        </View>
+                      </View>
+                      <Text style={wlSt.gridTitle} numberOfLines={1}>{s.title}</Text>
+                      <Text style={wlSt.gridSubtitle}>{epSub}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )
+          ) : activeTab === 'watchlist' ? (
+            watchlist.length === 0 ? (
+              <View style={{ marginTop: 24, alignItems: 'center' }}>
+                <Text style={{ fontSize: 32, marginBottom: 8 }}>🔖</Text>
+                <Empty text={t.noWatchlistItems} />
+              </View>
+            ) : (
+              <View style={[wlSt.gridRow, { flexWrap: 'wrap', gap: 8 }]}>
+                {watchlist.map((w, idx) => {
+                  const isMovie = w.mediaType === 'movie';
+                  const epSub = isMovie ? (lang === 'pt' ? 'Filme' : 'Movie') : (lang === 'pt' ? 'Série' : 'Series');
+                  return (
+                    <Pressable
+                      key={`prof-grid-wl-${w.id}-${idx}`}
+                      onPress={() => open(w)}
+                      style={[wlSt.gridCard, { width: colWidth }]}
+                    >
+                      <View style={profSt.cleanGridPoster}>
                         {w.posterPath ? (
-                          <Image source={{ uri: posterUrl(w.posterPath) }} style={profSt.hPosterImg} resizeMode="cover" />
+                          <Image source={{ uri: posterUrl(w.posterPath) }} style={profSt.cleanGridPosterImg} resizeMode="cover" />
                         ) : (
                           <Text style={homeSt.fallbackPosterText}>{w.title.slice(0, 1)}</Text>
                         )}
-                        {badgeText ? (
-                          <View style={homeSt.epBadge}>
-                            <Text style={homeSt.epBadgeText}>{badgeText}</Text>
-                          </View>
-                        ) : null}
                       </View>
-                      <Text style={profSt.hTitle} numberOfLines={1}>{w.title}</Text>
-                      <Text style={profSt.hSubtitle}>{epSub}</Text>
+                      <Text style={wlSt.gridTitle} numberOfLines={1}>{w.title}</Text>
+                      <Text style={wlSt.gridSubtitle}>{epSub}</Text>
                     </Pressable>
                   );
                 })}
               </View>
-            ) : (
-              <View style={homeSt.emptySectionCard}>
-                <Text style={homeSt.emptySectionText}>
-                  {lang === 'pt' ? 'A tua watchlist está vazia.' : 'Your watchlist is empty.'}
-                </Text>
+            )
+          ) : (
+            completedSeries.length === 0 ? (
+              <View style={{ marginTop: 24, alignItems: 'center' }}>
+                <Text style={{ fontSize: 32, marginBottom: 8 }}>🏆</Text>
+                <Empty text={t.noCompletedSeries} />
               </View>
-            )}
-          </View>
-        ) : (
-          /* Filter: Séries Vistas */
-          <View style={{ marginTop: 14 }}>
-            <View style={profSt.sectionBar}>
-              <Text style={styles.sectionHeader}>{t.seriesWatched} ({completedSeries.length})</Text>
-            </View>
-            {completedSeries.length > 0 ? (
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14, marginTop: 10 }}>
-                {completedSeries.map((s) => {
+            ) : (
+              <View style={[wlSt.gridRow, { flexWrap: 'wrap', gap: 8 }]}>
+                {completedSeries.map((s, idx) => {
                   const isMovie = s.mediaType === 'movie';
                   const epSub = isMovie
                     ? (lang === 'pt' ? 'Filme · Visto' : 'Movie · Watched')
-                    : `${s.totalEpisodes}/${s.totalEpisodes} ${lang === 'pt' ? 'eps' : 'eps'} ✓`;
+                    : `${s.totalEpisodes}/${s.totalEpisodes} eps ✓`;
                   const badgeText = isMovie ? (lang === 'pt' ? 'Filme' : 'Movie') : `${s.totalEpisodes}/${s.totalEpisodes}`;
                   return (
                     <Pressable
-                      key={`prof-flt-comp-${s.mediaType}-${s.tmdbId ?? s.title}`}
+                      key={`prof-grid-comp-${s.mediaType}-${s.tmdbId ?? s.title}-${idx}`}
                       onPress={() => open(s)}
-                      style={profSt.hCard}
+                      style={[wlSt.gridCard, { width: colWidth }]}
                     >
-                      <View style={profSt.hPoster}>
+                      <View style={profSt.cleanGridPoster}>
                         {s.posterPath ? (
-                          <Image source={{ uri: posterUrl(s.posterPath) }} style={profSt.hPosterImg} resizeMode="cover" />
+                          <Image source={{ uri: posterUrl(s.posterPath) }} style={profSt.cleanGridPosterImg} resizeMode="cover" />
                         ) : (
                           <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
                         )}
-                        <View style={[homeSt.epBadge, { borderColor: '#2E7D32' }]}>
-                          <Text style={[homeSt.epBadgeText, { color: '#68D391' }]}>{badgeText}</Text>
+                        <View style={[wlSt.gridEpBadge, { borderColor: '#2E7D32' }]}>
+                          <Text style={[wlSt.gridEpBadgeText, { color: '#68D391' }]}>{badgeText}</Text>
                         </View>
                       </View>
-                      <Text style={profSt.hTitle} numberOfLines={1}>{s.title}</Text>
-                      <Text style={[profSt.hSubtitle, { color: '#68D391' }]}>{epSub}</Text>
+                      <Text style={wlSt.gridTitle} numberOfLines={1}>{s.title}</Text>
+                      <Text style={[wlSt.gridSubtitle, { color: '#68D391' }]}>{epSub}</Text>
                     </Pressable>
                   );
                 })}
               </View>
-            ) : (
-              <View style={homeSt.emptySectionCard}>
-                <Text style={homeSt.emptySectionText}>
-                  {lang === 'pt' ? 'Ainda não terminaste nenhuma série.' : 'No completed series yet.'}
-                </Text>
-              </View>
-            )}
-          </View>
-        )}
+            )
+          )}
+        </View>
 
-                {/* App Version Footer */}
+        {/* App Version Footer */}
         <View style={profSt.versionFooter}>
           <Text style={profSt.versionText}>{t.versionText}</Text>
         </View>
-
-      {/* See All Full Modal */}
-      <Modal visible={seeAllModal.visible} animationType="slide">
-        <SafeAreaView style={styles.safe}>
-          <View style={catSt.header}>
-            <Pressable onPress={() => setSeeAllModal({ visible: false, title: '', items: [] })}>
-              <Text style={styles.back}>‹ {t.close}</Text>
-            </Pressable>
-            <Text style={catSt.title}>{seeAllModal.title}</Text>
-          </View>
-
-          <FlatList
-            key={`seeall-grid-${numColumns}-${seeAllModal.items.length}`}
-            data={seeAllModal.items}
-            numColumns={numColumns}
-            keyExtractor={(it, idx) => ('tmdbId' in it ? `s-${it.tmdbId ?? it.title}` : `w-${'id' in it ? it.id : idx}`)}
-            contentContainerStyle={wlSt.gridContainer}
-            columnWrapperStyle={[wlSt.gridRow, { gap }]}
-            showsVerticalScrollIndicator={false}
-            overScrollMode="always"
-            bounces
-            renderItem={({ item: it }) => {
-              const isSeries = 'collection' in it || 'seasons' in it;
-              const isMovie = it.mediaType === 'movie';
-              let epSub = '';
-              let badgeText: string | null = null;
-              let isDone = false;
-
-              if (isSeries) {
-                const s = it as Series;
-                const watched = progress(s);
-                isDone = !isMovie && s.totalEpisodes > 0 && watched >= s.totalEpisodes;
-                epSub = isMovie
-                  ? (watched >= 1 ? (lang === 'pt' ? 'Filme · Visto' : 'Movie · Watched') : (lang === 'pt' ? 'Filme' : 'Movie'))
-                  : `${watched}/${s.totalEpisodes} eps${isDone ? ' ✓' : ''}`;
-                badgeText = isMovie ? (lang === 'pt' ? 'Filme' : 'Movie') : `${watched}/${s.totalEpisodes}`;
-              } else {
-                const w = it as TmdbResult;
-                const libMatch = library.find(
-                  (s) =>
-                    (w.id && s.tmdbId === w.id) ||
-                    (w.title && s.title.trim().toLowerCase() === w.title.trim().toLowerCase())
-                );
-                const epCount = libMatch?.totalEpisodes ?? w.totalEpisodes;
-                const epWatched = libMatch ? progress(libMatch) : 0;
-                epSub = isMovie
-                  ? (lang === 'pt' ? 'Filme' : 'Movie')
-                  : (epCount ? (epWatched > 0 ? `${epWatched}/${epCount} eps` : `${epCount} eps`) : (lang === 'pt' ? 'Série' : 'Series'));
-                badgeText = isMovie
-                  ? (lang === 'pt' ? 'Filme' : 'Movie')
-                  : (epCount ? (epWatched > 0 ? `${epWatched}/${epCount}` : `${epCount} eps`) : null);
-              }
-
-              return (
-                <Pressable
-                  onPress={() => {
-                    setSeeAllModal({ visible: false, title: '', items: [] });
-                    open(it);
-                  }}
-                  style={[wlSt.gridCard, { width: cardWidth }]}
-                >
-                  <View style={wlSt.gridPoster}>
-                    {it.posterPath ? (
-                      <Image source={{ uri: posterUrl(it.posterPath) }} style={wlSt.gridPosterImg} resizeMode="cover" />
-                    ) : (
-                      <Text style={homeSt.fallbackPosterText}>{it.title.slice(0, 1)}</Text>
-                    )}
-                    {badgeText ? (
-                      <View style={[wlSt.gridEpBadge, isDone && { borderColor: '#2E7D32' }]}>
-                        <Text style={[wlSt.gridEpBadgeText, isDone && { color: '#68D391' }]}>{badgeText}</Text>
-                      </View>
-                    ) : null}
-                  </View>
-                  <Text style={wlSt.gridTitle} numberOfLines={2}>{it.title}</Text>
-                  <Text style={[wlSt.gridSubtitle, isDone && { color: '#68D391' }]}>{epSub}</Text>
-                </Pressable>
-              );
-            }}
-          />
-        </SafeAreaView>
-      </Modal>
-
-      {/* Friends Modal */}
-      <Modal visible={friendsModalOpen} animationType="slide">
-        <SafeAreaView style={styles.safe}>
-          <View style={catSt.header}>
-            <Pressable onPress={() => setFriendsModalOpen(false)}>
-              <Text style={styles.back}>‹ {t.close}</Text>
-            </Pressable>
-            <Text style={catSt.title}>{t.friends}</Text>
-          </View>
-
-          {/* Segmented Tabs */}
-          <View style={profSt.friendsTabsRow}>
-            <Pressable
-              onPress={() => setFriendsTab('my')}
-              style={[profSt.friendsTabBtn, friendsTab === 'my' && profSt.friendsTabBtnActive]}
-            >
-              <Text style={[profSt.friendsTabBtnText, friendsTab === 'my' && profSt.friendsTabBtnTextActive]}>
-                {t.myFriends} ({acceptedFriends.length})
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => setFriendsTab('add')}
-              style={[profSt.friendsTabBtn, friendsTab === 'add' && profSt.friendsTabBtnActive]}
-            >
-              <Text style={[profSt.friendsTabBtnText, friendsTab === 'add' && profSt.friendsTabBtnTextActive]}>
-                + {t.addFriend}
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => setFriendsTab('requests')}
-              style={[profSt.friendsTabBtn, friendsTab === 'requests' && profSt.friendsTabBtnActive]}
-            >
-              <Text style={[profSt.friendsTabBtnText, friendsTab === 'requests' && profSt.friendsTabBtnTextActive]}>
-                {t.pendingRequests}{pendingIncoming.length > 0 ? ` (${pendingIncoming.length})` : ''}
-              </Text>
-            </Pressable>
-          </View>
-
-          <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 14 }}>
-            {friendsTab === 'my' && (
-              acceptedFriends.length === 0 ? (
-                <View style={{ marginTop: 24, alignItems: 'center' }}>
-                  <Text style={{ fontSize: 36, marginBottom: 12 }}>👥</Text>
-                  <Empty text={t.noFriendsYet} />
-                  <Pressable
-                    onPress={() => setFriendsTab('add')}
-                    style={[styles.primaryButton, { marginTop: 20, paddingHorizontal: 24 }]}
-                  >
-                    <Text style={styles.primaryButtonText}>+ {t.addFriend}</Text>
-                  </Pressable>
-                </View>
-              ) : (
-                <FlatList
-                  data={acceptedFriends}
-                  keyExtractor={(f) => f.id}
-                  showsVerticalScrollIndicator={false}
-                  renderItem={({ item: f }) => {
-                    const prof = f.friendProfile;
-                    return (
-                      <View style={profSt.friendCard}>
-                        <View style={profSt.friendCardLeft}>
-                          <View style={profSt.friendAvatar}>
-                            {prof?.avatarUrl ? (
-                              <Image source={{ uri: prof.avatarUrl }} style={profSt.friendAvatarImg} />
-                            ) : (
-                              <Text style={{ fontSize: 18 }}>👤</Text>
-                            )}
-                          </View>
-                          <View style={{ flex: 1 }}>
-                            <Text style={profSt.friendUsername}>
-                              {prof?.username ? `@${prof.username}` : '@user'}
-                            </Text>
-                            {prof?.bio ? (
-                              <Text style={profSt.friendBio} numberOfLines={1}>{prof.bio}</Text>
-                            ) : null}
-                          </View>
-                        </View>
-                        <Pressable
-                          onPress={() => onRemoveFriendship?.(f.id)}
-                          style={profSt.friendActionBtnSecondary}
-                        >
-                          <Text style={profSt.friendActionBtnSecondaryText}>{t.removeFriend}</Text>
-                        </Pressable>
-                      </View>
-                    );
-                  }}
-                />
-              )
-            )}
-
-            {friendsTab === 'add' && (
-              <View style={{ flex: 1 }}>
-                <View style={[styles.searchBarContainer, { marginHorizontal: 0, marginTop: 0, marginBottom: 12 }]}>
-                  <SearchIcon size={16} color={C.bordeaux} />
-                  <TextInput
-                    value={friendQuery}
-                    onChangeText={setFriendQuery}
-                    placeholder={t.searchUsers}
-                    placeholderTextColor="#7e6060"
-                    autoCapitalize="none"
-                    style={styles.searchBarInput}
-                  />
-                  {friendSearching ? (
-                    <ActivityIndicator size="small" color={C.gold} style={{ marginRight: 6 }} />
-                  ) : null}
-                  {friendQuery ? (
-                    <Pressable onPress={() => setFriendQuery('')} hitSlop={8} style={{ padding: 4 }}>
-                      <Text style={{ color: C.muted, fontSize: 13, fontWeight: '700' }}>✕</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-
-                {friendQuery.trim().length < 2 ? (
-                  <View style={{ marginTop: 20, paddingHorizontal: 10 }}>
-                    <Text style={{ color: C.muted, fontSize: 14, textAlign: 'center', lineHeight: 20 }}>
-                      {t.friendSearchHint}
-                    </Text>
-                  </View>
-                ) : userSearchResults.length === 0 && !friendSearching ? (
-                  <View style={{ marginTop: 20 }}>
-                    <Empty
-                      text={
-                        lang === 'pt'
-                          ? `Nenhum utilizador encontrado com "${friendQuery}".`
-                          : `No users found matching "${friendQuery}".`
-                      }
-                    />
-                  </View>
-                ) : (
-                  <FlatList
-                    data={userSearchResults}
-                    keyExtractor={(u) => u.id}
-                    showsVerticalScrollIndicator={false}
-                    renderItem={({ item: u }) => {
-                      const isFriend = acceptedFriends.some(
-                        (f) => f.userId === u.id || f.friendId === u.id,
-                      );
-                      const isOutgoing = pendingOutgoing.some(
-                        (f) => f.friendId === u.id,
-                      );
-                      const incomingReq = pendingIncoming.find(
-                        (f) => f.userId === u.id,
-                      );
-
-                      return (
-                        <View style={profSt.friendCard}>
-                          <View style={profSt.friendCardLeft}>
-                            <View style={profSt.friendAvatar}>
-                              {u.avatarUrl ? (
-                                <Image source={{ uri: u.avatarUrl }} style={profSt.friendAvatarImg} />
-                              ) : (
-                                <Text style={{ fontSize: 18 }}>👤</Text>
-                              )}
-                            </View>
-                            <View style={{ flex: 1 }}>
-                              <Text style={profSt.friendUsername}>
-                                {u.username ? `@${u.username}` : '@user'}
-                              </Text>
-                              {u.bio ? (
-                                <Text style={profSt.friendBio} numberOfLines={1}>{u.bio}</Text>
-                              ) : null}
-                            </View>
-                          </View>
-
-                          {isFriend ? (
-                            <View style={[profSt.friendActionBtnSecondary, { borderColor: C.gold }]}>
-                              <Text style={[profSt.friendActionBtnSecondaryText, { color: C.gold }]}>
-                                ✓ {t.alreadyFriends}
-                              </Text>
-                            </View>
-                          ) : isOutgoing ? (
-                            <View style={profSt.friendActionBtnSecondary}>
-                              <Text style={profSt.friendActionBtnSecondaryText}>
-                                ⏱ {t.requestSent}
-                              </Text>
-                            </View>
-                          ) : incomingReq ? (
-                            <Pressable
-                              onPress={() => onRespondFriendRequest?.(incomingReq.id, true)}
-                              style={profSt.friendActionBtn}
-                            >
-                              <Text style={profSt.friendActionBtnText}>✓ {t.accept}</Text>
-                            </Pressable>
-                          ) : (
-                            <Pressable
-                              onPress={async () => {
-                                setRequestSendingId(u.id);
-                                await onSendFriendRequest?.(u.id);
-                                setRequestSendingId(null);
-                              }}
-                              disabled={requestSendingId === u.id}
-                              style={profSt.friendActionBtn}
-                            >
-                              {requestSendingId === u.id ? (
-                                <ActivityIndicator size="small" color={C.cream} />
-                              ) : (
-                                <Text style={profSt.friendActionBtnText}>+ {t.sendRequest}</Text>
-                              )}
-                            </Pressable>
-                          )}
-                        </View>
-                      );
-                    }}
-                  />
-                )}
-              </View>
-            )}
-
-            {friendsTab === 'requests' && (
-              pendingIncoming.length === 0 ? (
-                <View style={{ marginTop: 24, alignItems: 'center' }}>
-                  <Text style={{ fontSize: 36, marginBottom: 12 }}>📬</Text>
-                  <Empty text={t.noRequests} />
-                </View>
-              ) : (
-                <FlatList
-                  data={pendingIncoming}
-                  keyExtractor={(f) => f.id}
-                  showsVerticalScrollIndicator={false}
-                  renderItem={({ item: f }) => {
-                    const prof = f.friendProfile;
-                    return (
-                      <View style={profSt.friendCard}>
-                        <View style={profSt.friendCardLeft}>
-                          <View style={profSt.friendAvatar}>
-                            {prof?.avatarUrl ? (
-                              <Image source={{ uri: prof.avatarUrl }} style={profSt.friendAvatarImg} />
-                            ) : (
-                              <Text style={{ fontSize: 18 }}>👤</Text>
-                            )}
-                          </View>
-                          <View style={{ flex: 1 }}>
-                            <Text style={profSt.friendUsername}>
-                              {prof?.username ? `@${prof.username}` : '@user'}
-                            </Text>
-                            {prof?.bio ? (
-                              <Text style={profSt.friendBio} numberOfLines={1}>{prof.bio}</Text>
-                            ) : null}
-                          </View>
-                        </View>
-                        <View style={{ flexDirection: 'row', gap: 6 }}>
-                          <Pressable
-                            onPress={() => onRespondFriendRequest?.(f.id, true)}
-                            style={profSt.friendActionBtn}
-                          >
-                            <Text style={profSt.friendActionBtnText}>✓ {t.accept}</Text>
-                          </Pressable>
-                          <Pressable
-                            onPress={() => onRespondFriendRequest?.(f.id, false)}
-                            style={profSt.friendActionBtnSecondary}
-                          >
-                            <Text style={profSt.friendActionBtnSecondaryText}>✕ {t.decline}</Text>
-                          </Pressable>
-                        </View>
-                      </View>
-                    );
-                  }}
-                />
-              )
-            )}
-          </View>
-        </SafeAreaView>
-      </Modal>
-
-      {viewingProfile ? (
-        <FriendProfileModal
-          user={viewingProfile}
-          currentUserId={currentUserId}
-          friendship={friends.find(
-            (f) =>
-              (f.userId === viewingProfile.id && f.friendId === currentUserId) ||
-              (f.friendId === viewingProfile.id && f.userId === currentUserId),
-          )}
-          onClose={() => setViewingProfile(null)}
-          onOpenSeries={open}
-          onSendFriendRequest={onSendFriendRequest || (async () => ({}))}
-          onRespondFriendRequest={onRespondFriendRequest || (async () => {})}
-          onRemoveFriendship={onRemoveFriendship || (async () => {})}
-          lang={lang}
-        />
-      ) : null}
-
-      {/* Settings Modal (Language, Photo/Cover Customization & Sign out) */}
-      <Modal visible={settingsOpen} animationType="slide" transparent>
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modal, { maxHeight: '88%' }]}>
-            <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
-              <Text style={styles.modalTitle}>{t.settings}</Text>
-
-              {/* Photo & Cover Customization */}
-              <Text style={profSt.settingsSectionLabel}>{t.profileCustomization}</Text>
-              <View style={profSt.settingsMediaRow}>
-                {/* Photo / Avatar Section */}
-                <View style={profSt.settingsMediaCard}>
-                  <Text style={profSt.settingsMediaTitle}>👤 {t.profilePhoto}</Text>
-                  <AvatarPicker
-                    avatar={avatar}
-                    onPick={onUploadAvatar}
-                    label={avatar ? t.changePhoto : t.addPhoto}
-                    lang={lang}
-                  />
-                </View>
-
-                {/* Cover Banner Section */}
-                <View style={profSt.settingsMediaCard}>
-                  <Text style={profSt.settingsMediaTitle}>🖼 {t.coverImage}</Text>
-                  <BannerPicker
-                    banner={banner}
-                    onPick={onUploadBanner}
-                    onRemove={onRemoveBanner}
-                    lang={lang}
-                  />
-                </View>
-              </View>
-
-              {/* Language Selector */}
-              <Text style={profSt.settingsSectionLabel}>{t.language}</Text>
-              <View style={profSt.langRow}>
-                <Pressable
-                  onPress={() => onChangeLang('pt')}
-                  style={[profSt.langBtn, lang === 'pt' && profSt.langBtnActive]}
-                >
-                  <Text style={[profSt.langBtnText, lang === 'pt' && profSt.langBtnTextActive]}>
-                    🇵🇹 Português (PT)
-                  </Text>
-                </Pressable>
-
-                <Pressable
-                  onPress={() => onChangeLang('en')}
-                  style={[profSt.langBtn, lang === 'en' && profSt.langBtnActive]}
-                >
-                  <Text style={[profSt.langBtnText, lang === 'en' && profSt.langBtnTextActive]}>
-                    🇬🇧 English
-                  </Text>
-                </Pressable>
-              </View>
-
-              {/* Account Info & Sign Out */}
-              {email ? (
-                <View style={{ marginTop: 20 }}>
-                  <Text style={profSt.accountEmail}>{email}</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 8 }}>
-                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#22c55e', marginRight: 6 }} />
-                    <Text style={{ color: '#22c55e', fontSize: 13, fontWeight: '600' }}>
-                      {lang === 'pt' ? 'Sincronizado na Nuvem' : 'Cloud Synced'}
-                    </Text>
-                  </View>
-                  <Pressable
-                    onPress={() => {
-                      onCloseSettings();
-                      onSignOut();
-                    }}
-                    style={profSt.signOutButton}
-                  >
-                    <Text style={profSt.signOutText}>{t.signOut}</Text>
-                  </Pressable>
-                </View>
-              ) : (
-                <View style={{ marginTop: 20 }}>
-                  <Text style={profSt.accountEmail}>{t.notSignedIn}</Text>
-                  <Pressable
-                    onPress={() => {
-                      onCloseSettings();
-                      onSignOut();
-                    }}
-                    style={[profSt.signOutButton, { backgroundColor: C.surface2, borderWidth: 1, borderColor: C.gold }]}
-                  >
-                    <Text style={[profSt.signOutText, { color: C.gold }]}>{t.signInTab}</Text>
-                  </Pressable>
-                </View>
-              )}
-
-              <Pressable onPress={onCloseSettings} style={{ marginTop: 22, alignSelf: 'center', paddingVertical: 6 }}>
-                <Text style={styles.cancel}>{t.close}</Text>
-              </Pressable>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+      </ScrollView>
 
       {/* Edit Profile Modal (Username & Bio) */}
-      <Modal visible={editModalOpen} animationType="slide" transparent>
+      <Modal visible={editModalOpen} animationType="slide" transparent onRequestClose={() => setEditModalOpen(false)}>
         <View style={styles.modalBackdrop}>
           <View style={[styles.modal, { minHeight: 330 }]}>
             <Text style={styles.modalTitle}>{t.editProfile}</Text>
@@ -4899,7 +4042,6 @@ function Profile({
           </View>
         </View>
       </Modal>
-      </ScrollView>
     </View>
   );
 }
