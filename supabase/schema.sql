@@ -118,10 +118,10 @@ drop policy if exists "Anyone authenticated can view profiles" on public.profile
 drop policy if exists "Users can update own profile" on public.profiles;
 drop policy if exists "Users can insert own profile" on public.profiles;
 
--- Anyone authenticated can view profiles so friends feature can see usernames & bios
+-- Anyone authenticated or anon can view profiles so friends feature can see usernames & bios
 create policy "Anyone authenticated can view profiles"
   on public.profiles for select
-  to authenticated
+  to authenticated, anon
   using (true);
 
 create policy "Users can insert own profile"
@@ -134,6 +134,37 @@ create policy "Users can update own profile"
   to authenticated
   using ((select auth.uid()) = id)
   with check ((select auth.uid()) = id);
+
+-- ─── Automatic Profile Creation on Signup ────────────────────────────────────
+create or replace function public.handle_new_user()
+returns trigger as $
+begin
+  insert into public.profiles (id, username, updated_at)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1)),
+    now()
+  )
+  on conflict (id) do update set
+    username = coalesce(public.profiles.username, excluded.username),
+    updated_at = now();
+  return new;
+end;
+$ language plpgsql security definer;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
+
+-- Backfill any existing users into public.profiles
+insert into public.profiles (id, username, updated_at)
+select
+  id,
+  coalesce(raw_user_meta_data->>'username', split_part(email, '@', 1)),
+  now()
+from auth.users
+on conflict (id) do nothing;
 
 -- ─── avatars storage bucket ───────────────────────────────────────────────────
 -- Run separately in Supabase Storage UI or via the dashboard:

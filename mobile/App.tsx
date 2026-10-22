@@ -80,9 +80,9 @@ export type Friendship = {
   friendProfile?: FriendProfile;
 };
 
-type Tab = 'home' | 'library' | 'watchlist' | 'profile';
+type Tab = 'home' | 'library' | 'watchlist' | 'friends' | 'profile';
 
-const TABS: Tab[] = ['home', 'library', 'watchlist', 'profile'];
+const TABS: Tab[] = ['home', 'library', 'watchlist', 'friends', 'profile'];
 const USE_NATIVE_DRIVER = Platform.OS !== 'web';
 const STORAGE_KEY = '@screenvault/personal-data-v1';
 const LIBRARY_KEY = '@screenvault/library-v1';
@@ -220,6 +220,11 @@ export const i18n = {
     alreadyFriends: 'Friends',
     friendsCount: 'Friends',
     friendSearchHint: 'Search for users by username to connect and see what they are watching.',
+    allUsers: 'All Users',
+    noUsersFound: 'No users found.',
+    findFriends: 'Find Friends',
+    refresh: 'Refresh',
+    loading: 'Loading...',
   },
   pt: {
     home: 'Início',
@@ -329,6 +334,11 @@ export const i18n = {
     alreadyFriends: 'Amigos',
     friendsCount: 'Amigos',
     friendSearchHint: 'Pesquisa utilizadores pelo nome de utilizador para veres o que estão a ver.',
+    allUsers: 'Todos os Utilizadores',
+    noUsersFound: 'Nenhum utilizador encontrado.',
+    findFriends: 'Encontrar Amigos',
+    refresh: 'Atualizar',
+    loading: 'A carregar...',
   },
 };
 
@@ -387,6 +397,37 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [friends, setFriends] = useState<Friendship[]>([]);
+  const [allUsers, setAllUsers] = useState<FriendProfile[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+
+  const fetchAllUsers = async (targetUid?: string) => {
+    const uid = targetUid || session?.user?.id;
+    if (!supabase || !uid) return;
+    try {
+      setLoadingUsers(true);
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, username, bio, avatar_url, updated_at')
+        .neq('id', uid)
+        .order('updated_at', { ascending: false })
+        .limit(100);
+
+      if (!error && data) {
+        setAllUsers(
+          data.map((p: any) => ({
+            id: p.id,
+            username: p.username ?? undefined,
+            bio: p.bio ?? undefined,
+            avatarUrl: p.avatar_url ?? undefined,
+          }))
+        );
+      }
+    } catch {
+      // offline fallback
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
 
   const fetchFriendships = async (targetUid?: string) => {
     const uid = targetUid || session?.user?.id;
@@ -442,15 +483,52 @@ export default function App() {
   const sendFriendRequest = async (targetUserId: string): Promise<{ error?: string }> => {
     if (!supabase || !session) return { error: 'Not authenticated' };
     const uid = session.user.id;
-    const { error } = await supabase.from('friendships').insert({
+    if (uid === targetUserId) return { error: 'Cannot add yourself' };
+
+    // Check if friendship already exists
+    const existing = friends.find(
+      (f) =>
+        (f.userId === uid && f.friendId === targetUserId) ||
+        (f.userId === targetUserId && f.friendId === uid),
+    );
+    if (existing) {
+      if (existing.status === 'pending' && existing.userId === targetUserId) {
+        await respondFriendRequest(existing.id, true);
+        return {};
+      }
+      return { error: 'Already connected' };
+    }
+
+    // Optimistic UI update so button immediately shows "Request Sent"
+    const targetProf = allUsers.find((u) => u.id === targetUserId);
+    const tempId = `temp-${Date.now()}`;
+    const optimisticF: Friendship = {
+      id: tempId,
+      userId: uid,
+      friendId: targetUserId,
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+      friendProfile: targetProf,
+    };
+    setFriends((prev) => [optimisticF, ...prev.filter((f) => f.id !== tempId)]);
+
+    const { data, error } = await supabase.from('friendships').insert({
       user_id: uid,
       friend_id: targetUserId,
       status: 'pending',
-    });
-    if (!error) {
-      fetchFriendships(uid);
+    }).select().maybeSingle();
+
+    if (error) {
+      // Revert optimistic update
+      setFriends((prev) => prev.filter((f) => f.id !== tempId));
+      return { error: error.message };
     }
-    return { error: error?.message };
+
+    if (data?.id) {
+      setFriends((prev) => prev.map((f) => (f.id === tempId ? { ...f, id: data.id } : f)));
+    }
+    fetchFriendships(uid);
+    return {};
   };
 
   const respondFriendRequest = async (friendshipId: string, accept: boolean) => {
@@ -473,16 +551,19 @@ export default function App() {
   };
 
   const searchUsersByUsername = async (q: string): Promise<FriendProfile[]> => {
-    if (!supabase || !session || !q.trim()) return [];
+    if (!supabase || !session) return [];
     const uid = session.user.id;
     const cleanQ = q.trim().replace(/^@/, '');
-    const { data, error } = await supabase
+    let query = supabase
       .from('profiles')
       .select('id, username, bio, avatar_url')
-      .ilike('username', `%${cleanQ}%`)
-      .neq('id', uid)
-      .limit(15);
+      .neq('id', uid);
 
+    if (cleanQ) {
+      query = query.ilike('username', `%${cleanQ}%`);
+    }
+
+    const { data, error } = await query.order('updated_at', { ascending: false }).limit(50);
     if (error || !data) return [];
     return data.map((p: any) => ({
       id: p.id,
@@ -595,6 +676,10 @@ export default function App() {
     if (session?.user?.id) {
       fetchLibrary(session.user.id);
       fetchWatchlist(session.user.id);
+      if (next === 'friends' || next === 'profile') {
+        fetchFriendships(session.user.id);
+        fetchAllUsers(session.user.id);
+      }
     }
 
     const nextIndex = TABS.indexOf(next);
@@ -907,6 +992,7 @@ export default function App() {
             fetchLibrary(s.user.id);
             fetchWatchlist(s.user.id);
             fetchFriendships(s.user.id);
+            fetchAllUsers(s.user.id);
           }
           if (!s) setReady(true);
         })
@@ -934,12 +1020,21 @@ export default function App() {
       .then(({ data }) => { if (data?.signedUrl) setAvatar(data.signedUrl); })
       .catch(() => undefined);
 
+    const defaultUsername = session.user.user_metadata?.username || session.user.email?.split('@')[0] || 'User';
     supabase.from('profiles').select('*').eq('id', session.user.id).maybeSingle()
       .then(({ data, error }) => {
         if (!error && data) {
           if (data.username) {
             setUsername(data.username);
             AsyncStorage.setItem(USERNAME_KEY, data.username).catch(() => undefined);
+          } else {
+            if (supabase) {
+              void supabase.from('profiles').update({
+                username: defaultUsername,
+                updated_at: new Date().toISOString(),
+              }).eq('id', session.user.id);
+            }
+            setUsername(defaultUsername);
           }
           if (data.bio) {
             setBio(data.bio);
@@ -953,7 +1048,18 @@ export default function App() {
             setBanner((data as any).banner_url);
             AsyncStorage.setItem(BANNER_KEY, (data as any).banner_url).catch(() => undefined);
           }
+        } else if (!data && supabase) {
+          // Automatically create initial profile so all users appear immediately
+          void supabase.from('profiles').insert({
+            id: session.user.id,
+            username: defaultUsername,
+            updated_at: new Date().toISOString(),
+          }).then(() => {
+            setUsername(defaultUsername);
+            fetchAllUsers(session.user.id);
+          });
         }
+        fetchAllUsers(session.user.id);
       }, () => undefined);
 
     // Realtime listener on profiles table so photos update across all devices instantly
@@ -1043,6 +1149,22 @@ export default function App() {
       )
       .subscribe();
 
+    // Realtime listener on all profiles so new user registrations and avatar updates appear live
+    const allProfilesChannel = supabase
+      .channel('all-profiles-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'profiles',
+        },
+        () => {
+          fetchAllUsers(session.user.id);
+        },
+      )
+      .subscribe();
+
     // Visibility / focus listener to re-sync immediately when phone screen turns on, app is foregrounded, or user switches tabs
     let visibilityCleanup = () => {};
     if (Platform.OS === 'web' && typeof document !== 'undefined') {
@@ -1068,6 +1190,7 @@ export default function App() {
       watchlistChannel.unsubscribe();
       seriesChannel.unsubscribe();
       friendsChannel.unsubscribe();
+      allProfilesChannel.unsubscribe();
       visibilityCleanup();
       appStateSub.remove();
     };
@@ -1510,6 +1633,19 @@ export default function App() {
           lang={lang}
         />
       )}
+      {tab === 'friends' && (
+        <FriendsScreen
+          friends={friends}
+          allUsers={allUsers}
+          loadingUsers={loadingUsers}
+          currentUserId={session?.user?.id}
+          onSendFriendRequest={sendFriendRequest}
+          onRespondFriendRequest={respondFriendRequest}
+          onRemoveFriendship={removeFriendship}
+          onRefreshUsers={() => fetchAllUsers(session?.user?.id)}
+          lang={lang}
+        />
+      )}
       {tab === 'profile' && (
         <Profile
           library={library}
@@ -1583,7 +1719,7 @@ export default function App() {
         <>
           {tabContent}
           <View style={{ backgroundColor: C.surface }}>
-            <TabBar tab={tab} setTab={goToTab} lang={lang} />
+            <TabBar tab={tab} setTab={goToTab} lang={lang} pendingRequestsCount={friends.filter(f => f.status === 'pending' && f.friendId === session?.user?.id).length} />
           </View>
           <SearchCatalogModal
             visible={searchModalOpen}
@@ -2567,6 +2703,323 @@ function Watchlist({
 
 // ─── Profile Screen ───────────────────────────────────────────────────────────
 
+function FriendsScreen({
+  friends,
+  allUsers,
+  loadingUsers,
+  currentUserId,
+  onSendFriendRequest,
+  onRespondFriendRequest,
+  onRemoveFriendship,
+  onRefreshUsers,
+  lang,
+}: {
+  friends: Friendship[];
+  allUsers: FriendProfile[];
+  loadingUsers: boolean;
+  currentUserId?: string;
+  onSendFriendRequest: (targetUserId: string) => Promise<{ error?: string }>;
+  onRespondFriendRequest: (friendshipId: string, accept: boolean) => Promise<void>;
+  onRemoveFriendship: (friendshipId: string) => Promise<void>;
+  onRefreshUsers: () => void;
+  lang: Language;
+}) {
+  const t = i18n[lang];
+  const [friendsTab, setFriendsTab] = useState<'my' | 'add' | 'requests'>('my');
+  const [friendQuery, setFriendQuery] = useState('');
+  const [sendingId, setSendingId] = useState<string | null>(null);
+
+  const acceptedFriends = friends.filter((f) => f.status === 'accepted');
+  const pendingIncoming = friends.filter((f) => f.status === 'pending' && f.friendId === currentUserId);
+  const pendingOutgoing = friends.filter((f) => f.status === 'pending' && f.userId === currentUserId);
+
+  const filteredUsers = useMemo(() => {
+    const q = friendQuery.trim().toLowerCase().replace(/^@/, '');
+    if (!q) return allUsers;
+    return allUsers.filter((u) => {
+      const matchUsername = u.username ? u.username.toLowerCase().includes(q) : false;
+      const matchBio = u.bio ? u.bio.toLowerCase().includes(q) : false;
+      return matchUsername || matchBio;
+    });
+  }, [allUsers, friendQuery]);
+
+  return (
+    <View style={styles.flex}>
+      {/* Header */}
+      <View style={styles.libraryHeader}>
+        <Text style={styles.pageTitle}>{t.friends}</Text>
+        <Pressable onPress={onRefreshUsers} style={wlSt.viewModeBtn}>
+          <Text style={wlSt.viewModeIcon}>↻ {t.refresh}</Text>
+        </Pressable>
+      </View>
+
+      {/* Segmented Tabs */}
+      <View style={profSt.friendsTabsRow}>
+        <Pressable
+          onPress={() => setFriendsTab('my')}
+          style={[profSt.friendsTabBtn, friendsTab === 'my' && profSt.friendsTabBtnActive]}
+        >
+          <Text style={[profSt.friendsTabBtnText, friendsTab === 'my' && profSt.friendsTabBtnTextActive]}>
+            {t.myFriends} ({acceptedFriends.length})
+          </Text>
+        </Pressable>
+
+        <Pressable
+          onPress={() => setFriendsTab('add')}
+          style={[profSt.friendsTabBtn, friendsTab === 'add' && profSt.friendsTabBtnActive]}
+        >
+          <Text style={[profSt.friendsTabBtnText, friendsTab === 'add' && profSt.friendsTabBtnTextActive]}>
+            {t.addFriend} ({allUsers.length})
+          </Text>
+        </Pressable>
+
+        <Pressable
+          onPress={() => setFriendsTab('requests')}
+          style={[profSt.friendsTabBtn, friendsTab === 'requests' && profSt.friendsTabBtnActive]}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={[profSt.friendsTabBtnText, friendsTab === 'requests' && profSt.friendsTabBtnTextActive]}>
+              {t.pendingRequests}
+            </Text>
+            {pendingIncoming.length > 0 && (
+              <View style={profSt.friendsBadge}>
+                <Text style={profSt.friendsBadgeText}>{pendingIncoming.length}</Text>
+              </View>
+            )}
+          </View>
+        </Pressable>
+      </View>
+
+      {/* Tab Content */}
+      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 14 }}>
+        {friendsTab === 'my' && (
+          acceptedFriends.length === 0 ? (
+            <View style={{ marginTop: 24, paddingHorizontal: 12, alignItems: 'center' }}>
+              <Text style={{ fontSize: 44, marginBottom: 12 }}>👥</Text>
+              <Empty text={t.noFriendsYet} />
+              <Pressable
+                onPress={() => setFriendsTab('add')}
+                style={[styles.primaryButton, { paddingHorizontal: 24, marginTop: 16 }]}
+              >
+                <Text style={styles.primaryButtonText}>+ {t.findFriends}</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <FlatList
+              data={acceptedFriends}
+              keyExtractor={(f) => f.id}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: 100 }}
+              renderItem={({ item: f }) => {
+                const prof = f.friendProfile;
+                return (
+                  <View style={profSt.friendCard}>
+                    <View style={profSt.friendCardLeft}>
+                      <View style={profSt.friendAvatar}>
+                        {prof?.avatarUrl ? (
+                          <Image source={{ uri: prof.avatarUrl }} style={profSt.friendAvatarImg} />
+                        ) : (
+                          <Text style={{ fontSize: 18 }}>👤</Text>
+                        )}
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={profSt.friendUsername}>
+                          {prof?.username ? `@${prof.username}` : '@user'}
+                        </Text>
+                        {prof?.bio ? (
+                          <Text style={profSt.friendBio} numberOfLines={1}>{prof.bio}</Text>
+                        ) : null}
+                      </View>
+                    </View>
+                    <Pressable
+                      onPress={() => onRemoveFriendship(f.id)}
+                      style={profSt.friendActionBtnSecondary}
+                    >
+                      <Text style={profSt.friendActionBtnSecondaryText}>{t.removeFriend}</Text>
+                    </Pressable>
+                  </View>
+                );
+              }}
+            />
+          )
+        )}
+
+        {friendsTab === 'add' && (
+          <View style={{ flex: 1 }}>
+            {/* Search bar */}
+            <View style={[styles.searchBarContainer, { marginHorizontal: 0, marginTop: 0, marginBottom: 12 }]}>
+              <SearchIcon size={16} color={C.bordeaux} />
+              <TextInput
+                value={friendQuery}
+                onChangeText={setFriendQuery}
+                placeholder={t.searchUsers}
+                placeholderTextColor="#7e6060"
+                autoCapitalize="none"
+                style={styles.searchBarInput}
+              />
+              {loadingUsers ? (
+                <ActivityIndicator size="small" color={C.gold} style={{ marginRight: 6 }} />
+              ) : null}
+              {friendQuery ? (
+                <Pressable onPress={() => setFriendQuery('')} hitSlop={8} style={{ padding: 4 }}>
+                  <Text style={{ color: C.muted, fontSize: 13, fontWeight: '700' }}>✕</Text>
+                </Pressable>
+              ) : null}
+            </View>
+
+            {filteredUsers.length === 0 && !loadingUsers ? (
+              <View style={{ marginTop: 24 }}>
+                <Empty
+                  text={
+                    friendQuery.trim()
+                      ? (lang === 'pt'
+                          ? `Nenhum utilizador encontrado com "${friendQuery}".`
+                          : `No users found matching "${friendQuery}".`)
+                      : (lang === 'pt'
+                          ? 'Ainda não foram encontrados outros utilizadores na aplicação.'
+                          : 'No other users found in the application yet.')
+                  }
+                />
+              </View>
+            ) : (
+              <FlatList
+                data={filteredUsers}
+                keyExtractor={(u) => u.id}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 100 }}
+                renderItem={({ item: u }) => {
+                  const isFriend = acceptedFriends.some(
+                    (f) => f.userId === u.id || f.friendId === u.id,
+                  );
+                  const isOutgoing = pendingOutgoing.some(
+                    (f) => f.friendId === u.id,
+                  );
+                  const incomingReq = pendingIncoming.find(
+                    (f) => f.userId === u.id,
+                  );
+
+                  return (
+                    <View style={profSt.friendCard}>
+                      <View style={profSt.friendCardLeft}>
+                        <View style={profSt.friendAvatar}>
+                          {u.avatarUrl ? (
+                            <Image source={{ uri: u.avatarUrl }} style={profSt.friendAvatarImg} />
+                          ) : (
+                            <Text style={{ fontSize: 18 }}>👤</Text>
+                          )}
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={profSt.friendUsername}>
+                            {u.username ? `@${u.username}` : '@user'}
+                          </Text>
+                          {u.bio ? (
+                            <Text style={profSt.friendBio} numberOfLines={1}>{u.bio}</Text>
+                          ) : null}
+                        </View>
+                      </View>
+
+                      {isFriend ? (
+                        <View style={[profSt.friendActionBtnSecondary, { borderColor: C.gold }]}>
+                          <Text style={[profSt.friendActionBtnSecondaryText, { color: C.gold }]}>
+                            ✓ {t.alreadyFriends}
+                          </Text>
+                        </View>
+                      ) : isOutgoing ? (
+                        <View style={profSt.friendActionBtnSecondary}>
+                          <Text style={profSt.friendActionBtnSecondaryText}>
+                            ⌛ {t.requestSent}
+                          </Text>
+                        </View>
+                      ) : incomingReq ? (
+                        <Pressable
+                          onPress={() => onRespondFriendRequest(incomingReq.id, true)}
+                          style={profSt.friendActionBtn}
+                        >
+                          <Text style={profSt.friendActionBtnText}>✓ {t.accept}</Text>
+                        </Pressable>
+                      ) : (
+                        <Pressable
+                          onPress={async () => {
+                            setSendingId(u.id);
+                            try {
+                              await onSendFriendRequest(u.id);
+                            } finally {
+                              setSendingId(null);
+                            }
+                          }}
+                          disabled={sendingId === u.id}
+                          style={profSt.friendActionBtn}
+                        >
+                          <Text style={profSt.friendActionBtnText}>
+                            {sendingId === u.id ? '...' : `+ ${t.sendRequest}`}
+                          </Text>
+                        </Pressable>
+                      )}
+                    </View>
+                  );
+                }}
+              />
+            )}
+          </View>
+        )}
+
+        {friendsTab === 'requests' && (
+          pendingIncoming.length === 0 ? (
+            <View style={{ marginTop: 24 }}>
+              <Empty text={t.noRequests} />
+            </View>
+          ) : (
+            <FlatList
+              data={pendingIncoming}
+              keyExtractor={(f) => f.id}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: 100 }}
+              renderItem={({ item: f }) => {
+                const prof = f.friendProfile;
+                return (
+                  <View style={profSt.friendCard}>
+                    <View style={profSt.friendCardLeft}>
+                      <View style={profSt.friendAvatar}>
+                        {prof?.avatarUrl ? (
+                          <Image source={{ uri: prof.avatarUrl }} style={profSt.friendAvatarImg} />
+                        ) : (
+                          <Text style={{ fontSize: 18 }}>👤</Text>
+                        )}
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={profSt.friendUsername}>
+                          {prof?.username ? `@${prof.username}` : '@user'}
+                        </Text>
+                        {prof?.bio ? (
+                          <Text style={profSt.friendBio} numberOfLines={1}>{prof.bio}</Text>
+                        ) : null}
+                      </View>
+                    </View>
+                    <View style={{ flexDirection: 'row', gap: 6 }}>
+                      <Pressable
+                        onPress={() => onRespondFriendRequest(f.id, true)}
+                        style={profSt.friendActionBtn}
+                      >
+                        <Text style={profSt.friendActionBtnText}>✓ {t.accept}</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => onRespondFriendRequest(f.id, false)}
+                        style={profSt.friendActionBtnSecondary}
+                      >
+                        <Text style={profSt.friendActionBtnSecondaryText}>✕</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                );
+              }}
+            />
+          )
+        )}
+      </View>
+    </View>
+  );
+}
+
 function Profile({
   library,
   watchlist,
@@ -2797,7 +3250,7 @@ function Profile({
           </View>
         </View>
 
-        {/* Ultra-compact Dashboard line: Séries Vistas, Séries por Acabar, Watchlist */}
+        {/* Ultra-compact Dashboard line: Séries Vistas, Séries por Acabar, Watchlist, Amigos */}
         <View style={profSt.dashBar}>
           <View style={profSt.dashItem}>
             <Text style={profSt.dashNumber}>{seriesWatched}</Text>
@@ -2813,11 +3266,16 @@ function Profile({
             <Text style={profSt.dashNumber}>{toWatch}</Text>
             <Text style={profSt.dashLabel} numberOfLines={1}>{t.onWatchlist}</Text>
           </View>
+          <View style={profSt.dashSep} />
+          <Pressable onPress={() => onNavigateTab('friends')} style={profSt.dashItem}>
+            <Text style={profSt.dashNumber}>{acceptedFriends.length}</Text>
+            <Text style={profSt.dashLabel} numberOfLines={1}>{t.friends}</Text>
+          </Pressable>
         </View>
 
         {/* Friends Bar / Action */}
         <Pressable
-          onPress={() => setFriendsModalOpen(true)}
+          onPress={() => onNavigateTab('friends')}
           style={profSt.friendsBar}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
@@ -4780,12 +5238,23 @@ function SeriesRow({
   );
 }
 
-function TabBar({ tab, setTab, lang }: { tab: Tab; setTab: (t: Tab) => void; lang: Language }) {
+function TabBar({
+  tab,
+  setTab,
+  lang,
+  pendingRequestsCount = 0,
+}: {
+  tab: Tab;
+  setTab: (t: Tab) => void;
+  lang: Language;
+  pendingRequestsCount?: number;
+}) {
   const t = i18n[lang];
   const tabs: [Tab, string, string][] = [
     ['home', '⌂', t.home],
     ['library', '▦', t.library],
     ['watchlist', '☆', t.watchlist],
+    ['friends', '👥', t.friends],
     ['profile', '◉', t.profile],
   ];
 
@@ -4793,12 +5262,22 @@ function TabBar({ tab, setTab, lang }: { tab: Tab; setTab: (t: Tab) => void; lan
     <View style={styles.tabbar}>
       {tabs.map(([key, icon, label]) => {
         const isActive = tab === key;
+        const hasBadge = key === 'friends' && pendingRequestsCount > 0;
         return (
           <Pressable key={key} onPress={() => setTab(key)} style={styles.tab}>
-            <Animated.Text style={[styles.tabIcon, isActive && styles.tabIconActive]}>
-              {icon}
-            </Animated.Text>
-            <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>
+            <View style={{ position: 'relative' }}>
+              <Animated.Text style={[styles.tabIcon, isActive && styles.tabIconActive]}>
+                {icon}
+              </Animated.Text>
+              {hasBadge && (
+                <View style={styles.tabBadge}>
+                  <Text style={styles.tabBadgeText}>
+                    {pendingRequestsCount > 9 ? '9+' : pendingRequestsCount}
+                  </Text>
+                </View>
+              )}
+            </View>
+            <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]} numberOfLines={1}>
               {label}
             </Text>
           </Pressable>
@@ -6214,6 +6693,21 @@ const styles = StyleSheet.create({
       : 8) as any,
   },
   tab: { alignItems: 'center', minWidth: 60, flex: 1, paddingVertical: 2 },
+  tabBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -10,
+    backgroundColor: C.bordeaux,
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+    borderWidth: 1,
+    borderColor: C.gold,
+  },
+  tabBadgeText: { color: C.cream, fontSize: 10, fontWeight: '800' },
   tabIcon: { color: C.muted, fontSize: 22 },
   tabIconActive: { color: C.bordeaux, transform: [{ scale: 1.15 }] },
   tabLabel: { color: C.muted, fontSize: 13, marginTop: 2 },
