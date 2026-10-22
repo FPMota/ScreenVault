@@ -126,7 +126,7 @@ export const i18n = {
     searchCatalogPrompt: 'Search movies or series...',
     search: 'Search',
     addContent: 'Add',
-    versionText: 'Version 1.3 - 17/10/2026',
+    versionText: 'Version 1.4 - 22/10/2026',
     all: 'All',
     watching: 'Watching',
     finishedToContinue: 'Finished – To Continue',
@@ -237,6 +237,7 @@ export const i18n = {
     watchedSeriesCount: 'Series Watched',
     watchingCount: 'Watching',
     currentlyWatching: 'Watching',
+    allSeries: 'All',
   },
   pt: {
     home: 'Início',
@@ -251,7 +252,7 @@ export const i18n = {
     searchCatalogPrompt: 'Pesquisar filmes ou séries...',
     search: 'Pesquisar',
     addContent: 'Adicionar',
-    versionText: 'Versão 1.3 - 17/10/2026',
+    versionText: 'Versão 1.4 - 22/10/2026',
     all: 'Todas',
     watching: 'A ver',
     finishedToContinue: 'Terminadas por ver',
@@ -362,6 +363,7 @@ export const i18n = {
     watchedSeriesCount: 'Séries Vistas',
     watchingCount: 'A Ver',
     currentlyWatching: 'A Ver',
+    allSeries: 'Todas',
   },
 };
 
@@ -2721,6 +2723,8 @@ function FriendProfileModal({
   user,
   currentUserId,
   friendship,
+  fallbackLibrary,
+  fallbackWatchlist,
   onClose,
   onOpenSeries,
   onSendFriendRequest,
@@ -2731,6 +2735,8 @@ function FriendProfileModal({
   user: FriendProfile;
   currentUserId?: string;
   friendship?: Friendship;
+  fallbackLibrary?: Series[];
+  fallbackWatchlist?: TmdbResult[];
   onClose: () => void;
   onOpenSeries: (item: Series | TmdbResult) => void;
   onSendFriendRequest: (targetUserId: string) => Promise<{ error?: string }>;
@@ -2741,10 +2747,10 @@ function FriendProfileModal({
   const t = i18n[lang];
   const { cardWidth, gap } = useGridMetrics();
   const [profile, setProfile] = useState<FriendProfile>(user);
-  const [series, setSeries] = useState<Series[]>([]);
-  const [watchlist, setWatchlist] = useState<TmdbResult[]>([]);
+  const [series, setSeries] = useState<Series[]>(fallbackLibrary && user.id === currentUserId ? fallbackLibrary : []);
+  const [watchlist, setWatchlist] = useState<TmdbResult[]>(fallbackWatchlist && user.id === currentUserId ? fallbackWatchlist : []);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'watching' | 'completed' | 'watchlist'>('watching');
+  const [activeTab, setActiveTab] = useState<'completed' | 'watching' | 'all' | 'watchlist'>('completed');
   const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
@@ -2755,66 +2761,94 @@ function FriendProfileModal({
     let mounted = true;
     const fetchUserData = async () => {
       if (!supabase || !user.id) {
-        setLoading(false);
+        if (mounted) setLoading(false);
         return;
       }
       try {
         setLoading(true);
         // 1. Fetch user profile
-        const { data: profData } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .maybeSingle();
+        try {
+          const { data: profData } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', user.id)
+            .maybeSingle();
 
-        if (mounted && profData) {
-          const rawName = profData.username || (profData.email ? profData.email.split('@')[0] : (profData.full_name || `user_${profData.id.slice(0, 6)}`));
-          setProfile((prev) => ({
-            id: profData.id,
-            username: rawName || prev.username,
-            bio: profData.bio ?? prev.bio,
-            avatarUrl: profData.avatar_url ?? prev.avatarUrl,
-            bannerUrl: profData.banner_url ?? prev.bannerUrl,
-          }));
-        }
+          if (mounted && profData) {
+            const rawName = profData.username || (profData.email ? profData.email.split('@')[0] : (profData.full_name || `user_${profData.id.slice(0, 6)}`));
+            setProfile((prev) => ({
+              id: profData.id,
+              username: rawName || prev.username,
+              bio: profData.bio ?? prev.bio,
+              avatarUrl: profData.avatar_url ?? prev.avatarUrl,
+              bannerUrl: profData.banner_url ?? prev.bannerUrl,
+            }));
+          }
+        } catch {}
 
         // 2. Fetch series
-        const { data: seriesData } = await supabase
-          .from('series_entries')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('title');
+        try {
+          const { data: seriesData, error: sErr } = await supabase
+            .from('series_entries')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('title');
 
-        if (mounted && seriesData) {
-          const parsedSeries: Series[] = seriesData.map((r: any) => ({
-            title: r.title,
-            collection: r.collection as Collection,
-            watchedEpisodes: r.watched_episodes ?? 0,
-            totalEpisodes: r.total_episodes ?? 0,
-            mediaType: (r.media_type as 'series' | 'movie') || 'series',
-            tmdbId: r.tmdb_id ?? undefined,
-            posterPath: r.poster_path ?? undefined,
-            lastWatched: r.last_watched ? Number(r.last_watched) : undefined,
-          }));
-          setSeries(parsedSeries);
+          if (sErr) {
+            console.warn('Notice fetching friend series:', sErr.message || sErr);
+          }
+
+          if (mounted && seriesData && seriesData.length > 0) {
+            const parsedSeries: Series[] = seriesData.map((r: any) => ({
+              title: r.title,
+              collection: r.collection as Collection,
+              watchedEpisodes: r.watched_episodes ?? 0,
+              totalEpisodes: r.total_episodes ?? 0,
+              mediaType: (r.media_type as 'series' | 'movie') || 'series',
+              tmdbId: r.tmdb_id ?? undefined,
+              posterPath: r.poster_path ?? undefined,
+              lastWatched: r.last_watched ? Number(r.last_watched) : undefined,
+            }));
+            setSeries(parsedSeries);
+          } else if (mounted && fallbackLibrary && user.id === currentUserId) {
+            setSeries(fallbackLibrary);
+          }
+        } catch (e) {
+          console.warn('Network error fetching friend series:', e);
+          if (mounted && fallbackLibrary && user.id === currentUserId) {
+            setSeries(fallbackLibrary);
+          }
         }
 
         // 3. Fetch watchlist
-        const { data: wlData } = await supabase
-          .from('watchlist')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false });
+        try {
+          const { data: wlData, error: wErr } = await supabase
+            .from('watchlist')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false });
 
-        if (mounted && wlData) {
-          const parsedWl: TmdbResult[] = wlData.map((r: any) => ({
-            id: Number(r.tmdb_id) || Number(r.id) || 0,
-            mediaType: (r.media_type as 'series' | 'movie') || 'series',
-            title: r.title,
-            posterPath: r.poster_path ?? undefined,
-            overview: r.overview ?? undefined,
-          }));
-          setWatchlist(parsedWl);
+          if (wErr) {
+            console.warn('Notice fetching friend watchlist:', wErr.message || wErr);
+          }
+
+          if (mounted && wlData && wlData.length > 0) {
+            const parsedWl: TmdbResult[] = wlData.map((r: any) => ({
+              id: Number(r.tmdb_id) || Number(r.id) || 0,
+              mediaType: (r.media_type as 'series' | 'movie') || 'series',
+              title: r.title,
+              posterPath: r.poster_path ?? undefined,
+              overview: r.overview ?? undefined,
+            }));
+            setWatchlist(parsedWl);
+          } else if (mounted && fallbackWatchlist && user.id === currentUserId) {
+            setWatchlist(fallbackWatchlist);
+          }
+        } catch (e) {
+          console.warn('Network error fetching friend watchlist:', e);
+          if (mounted && fallbackWatchlist && user.id === currentUserId) {
+            setWatchlist(fallbackWatchlist);
+          }
         }
       } catch (err) {
         console.warn('Error fetching friend profile data:', err);
@@ -2829,13 +2863,19 @@ function FriendProfileModal({
     };
   }, [user.id]);
 
-  const watchingList = useMemo(
-    () => series.filter((s) => s.collection === 'watching' && (s.watchedEpisodes ?? 0) < (s.totalEpisodes ?? 0) && (s.watchedEpisodes ?? 0) > 0),
+  const isSeriesCompleted = (s: Series) => {
+    if (s.collection === 'up_to_date') return true;
+    if (s.mediaType === 'movie') return (s.watchedEpisodes ?? 0) >= 1;
+    return (s.watchedEpisodes ?? 0) >= (s.totalEpisodes ?? 0) && (s.totalEpisodes ?? 0) > 0;
+  };
+
+  const completedList = useMemo(
+    () => series.filter(isSeriesCompleted),
     [series],
   );
 
-  const completedList = useMemo(
-    () => series.filter((s) => ((s.watchedEpisodes ?? 0) >= (s.totalEpisodes ?? 0) && (s.totalEpisodes ?? 0) > 0) || s.collection === 'up_to_date'),
+  const watchingList = useMemo(
+    () => series.filter((s) => !isSeriesCompleted(s) && ((s.watchedEpisodes ?? 0) > 0 || s.collection === 'watching')),
     [series],
   );
 
@@ -2844,12 +2884,20 @@ function FriendProfileModal({
     [series],
   );
 
-  // Default tab selection if watching is empty but completed has items
+  // Default tab selection prioritization
   useEffect(() => {
-    if (!loading && watchingList.length === 0 && completedList.length > 0) {
-      setActiveTab('completed');
+    if (!loading) {
+      if (completedList.length > 0) {
+        setActiveTab('completed');
+      } else if (watchingList.length > 0) {
+        setActiveTab('watching');
+      } else if (series.length > 0) {
+        setActiveTab('all');
+      } else if (watchlist.length > 0) {
+        setActiveTab('watchlist');
+      }
     }
-  }, [loading, watchingList.length, completedList.length]);
+  }, [loading, completedList.length, watchingList.length, series.length, watchlist.length]);
 
   const displayedUsername = profile.username ? `@${profile.username}` : `@user_${profile.id.slice(0, 6)}`;
   const isMe = currentUserId === user.id;
@@ -3005,6 +3053,14 @@ function FriendProfileModal({
           {/* Tabs */}
           <View style={profSt.friendProfileTabs}>
             <Pressable
+              onPress={() => setActiveTab('completed')}
+              style={[profSt.friendProfileTabBtn, activeTab === 'completed' && profSt.friendProfileTabBtnActive]}
+            >
+              <Text style={[profSt.friendProfileTabBtnText, activeTab === 'completed' && profSt.friendProfileTabBtnTextActive]}>
+                {t.watchedSeriesCount} ({completedList.length})
+              </Text>
+            </Pressable>
+            <Pressable
               onPress={() => setActiveTab('watching')}
               style={[profSt.friendProfileTabBtn, activeTab === 'watching' && profSt.friendProfileTabBtnActive]}
             >
@@ -3013,11 +3069,11 @@ function FriendProfileModal({
               </Text>
             </Pressable>
             <Pressable
-              onPress={() => setActiveTab('completed')}
-              style={[profSt.friendProfileTabBtn, activeTab === 'completed' && profSt.friendProfileTabBtnActive]}
+              onPress={() => setActiveTab('all')}
+              style={[profSt.friendProfileTabBtn, activeTab === 'all' && profSt.friendProfileTabBtnActive]}
             >
-              <Text style={[profSt.friendProfileTabBtnText, activeTab === 'completed' && profSt.friendProfileTabBtnTextActive]}>
-                {t.watchedSeriesCount} ({completedList.length})
+              <Text style={[profSt.friendProfileTabBtnText, activeTab === 'all' && profSt.friendProfileTabBtnTextActive]}>
+                {t.allSeries} ({series.length})
               </Text>
             </Pressable>
             <Pressable
@@ -3037,42 +3093,6 @@ function FriendProfileModal({
                 <ActivityIndicator size="large" color={C.gold} />
                 <Text style={{ color: C.muted, marginTop: 12, fontSize: 13 }}>{t.loading}</Text>
               </View>
-            ) : activeTab === 'watching' ? (
-              watchingList.length === 0 ? (
-                <View style={{ marginTop: 24, alignItems: 'center' }}>
-                  <Text style={{ fontSize: 32, marginBottom: 8 }}>🎬</Text>
-                  <Empty text={t.noWatchingSeries} />
-                </View>
-              ) : (
-                <View style={[wlSt.gridRow, { flexWrap: 'wrap', gap }]}>
-                  {watchingList.map((s, idx) => {
-                    const watched = s.watchedEpisodes ?? 0;
-                    const isDone = s.totalEpisodes > 0 && watched >= s.totalEpisodes;
-                    const badgeText = `${watched}/${s.totalEpisodes}`;
-                    const epSub = `${watched}/${s.totalEpisodes} eps`;
-                    return (
-                      <Pressable
-                        key={`friend-watching-${s.tmdbId ?? s.title}-${idx}`}
-                        onPress={() => onOpenSeries(s)}
-                        style={[wlSt.gridCard, { width: cardWidth }]}
-                      >
-                        <View style={wlSt.gridPoster}>
-                          {s.posterPath ? (
-                            <Image source={{ uri: posterUrl(s.posterPath) }} style={wlSt.gridPosterImg} resizeMode="cover" />
-                          ) : (
-                            <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
-                          )}
-                          <View style={[wlSt.gridEpBadge, isDone && { borderColor: '#2E7D32' }]}>
-                            <Text style={[wlSt.gridEpBadgeText, isDone && { color: '#68D391' }]}>{badgeText}</Text>
-                          </View>
-                        </View>
-                        <Text style={wlSt.gridTitle} numberOfLines={2}>{s.title}</Text>
-                        <Text style={[wlSt.gridSubtitle, isDone && { color: '#68D391' }]}>{epSub}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              )
             ) : activeTab === 'completed' ? (
               completedList.length === 0 ? (
                 <View style={{ marginTop: 24, alignItems: 'center' }}>
@@ -3084,10 +3104,12 @@ function FriendProfileModal({
                   {completedList.map((s, idx) => {
                     const isMovie = s.mediaType === 'movie';
                     const watched = s.watchedEpisodes ?? 0;
-                    const badgeText = isMovie ? (lang === 'pt' ? 'Filme' : 'Movie') : `${watched}/${s.totalEpisodes}`;
+                    const badgeText = isMovie
+                      ? (lang === 'pt' ? 'Filme' : 'Movie')
+                      : (s.totalEpisodes > 0 ? `${watched}/${s.totalEpisodes}` : `${watched} eps`);
                     const epSub = isMovie
                       ? (lang === 'pt' ? 'Filme · Visto' : 'Movie · Watched')
-                      : `${watched}/${s.totalEpisodes} eps ✓`;
+                      : (s.totalEpisodes > 0 ? `${watched}/${s.totalEpisodes} eps ✓` : `${watched} eps ✓`);
                     return (
                       <Pressable
                         key={`friend-comp-${s.tmdbId ?? s.title}-${idx}`}
@@ -3106,6 +3128,82 @@ function FriendProfileModal({
                         </View>
                         <Text style={wlSt.gridTitle} numberOfLines={2}>{s.title}</Text>
                         <Text style={[wlSt.gridSubtitle, { color: '#68D391' }]}>{epSub}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              )
+            ) : activeTab === 'watching' ? (
+              watchingList.length === 0 ? (
+                <View style={{ marginTop: 24, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 32, marginBottom: 8 }}>🎬</Text>
+                  <Empty text={t.noWatchingSeries} />
+                </View>
+              ) : (
+                <View style={[wlSt.gridRow, { flexWrap: 'wrap', gap }]}>
+                  {watchingList.map((s, idx) => {
+                    const watched = s.watchedEpisodes ?? 0;
+                    const badgeText = s.totalEpisodes > 0 ? `${watched}/${s.totalEpisodes}` : `${watched} eps`;
+                    const epSub = s.totalEpisodes > 0 ? `${watched}/${s.totalEpisodes} eps` : `${watched} eps`;
+                    return (
+                      <Pressable
+                        key={`friend-watching-${s.tmdbId ?? s.title}-${idx}`}
+                        onPress={() => onOpenSeries(s)}
+                        style={[wlSt.gridCard, { width: cardWidth }]}
+                      >
+                        <View style={wlSt.gridPoster}>
+                          {s.posterPath ? (
+                            <Image source={{ uri: posterUrl(s.posterPath) }} style={wlSt.gridPosterImg} resizeMode="cover" />
+                          ) : (
+                            <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
+                          )}
+                          <View style={wlSt.gridEpBadge}>
+                            <Text style={wlSt.gridEpBadgeText}>{badgeText}</Text>
+                          </View>
+                        </View>
+                        <Text style={wlSt.gridTitle} numberOfLines={2}>{s.title}</Text>
+                        <Text style={wlSt.gridSubtitle}>{epSub}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              )
+            ) : activeTab === 'all' ? (
+              series.length === 0 ? (
+                <View style={{ marginTop: 24, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 32, marginBottom: 8 }}>📺</Text>
+                  <Empty text={t.noCompletedSeries} />
+                </View>
+              ) : (
+                <View style={[wlSt.gridRow, { flexWrap: 'wrap', gap }]}>
+                  {series.map((s, idx) => {
+                    const isMovie = s.mediaType === 'movie';
+                    const watched = s.watchedEpisodes ?? 0;
+                    const isDone = isSeriesCompleted(s);
+                    const badgeText = isMovie
+                      ? (watched > 0 ? (lang === 'pt' ? 'Filme · Visto' : 'Movie · Watched') : (lang === 'pt' ? 'Filme' : 'Movie'))
+                      : (s.totalEpisodes > 0 ? `${watched}/${s.totalEpisodes}` : `${watched} eps`);
+                    const epSub = isMovie
+                      ? (watched > 0 ? (lang === 'pt' ? 'Filme · Visto' : 'Movie · Watched') : (lang === 'pt' ? 'Filme' : 'Movie'))
+                      : (s.totalEpisodes > 0 ? `${watched}/${s.totalEpisodes} eps${isDone ? ' ✓' : ''}` : `${watched} eps`);
+                    return (
+                      <Pressable
+                        key={`friend-all-${s.tmdbId ?? s.title}-${idx}`}
+                        onPress={() => onOpenSeries(s)}
+                        style={[wlSt.gridCard, { width: cardWidth }]}
+                      >
+                        <View style={wlSt.gridPoster}>
+                          {s.posterPath ? (
+                            <Image source={{ uri: posterUrl(s.posterPath) }} style={wlSt.gridPosterImg} resizeMode="cover" />
+                          ) : (
+                            <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
+                          )}
+                          <View style={[wlSt.gridEpBadge, isDone && { borderColor: '#2E7D32' }]}>
+                            <Text style={[wlSt.gridEpBadgeText, isDone && { color: '#68D391' }]}>{badgeText}</Text>
+                          </View>
+                        </View>
+                        <Text style={wlSt.gridTitle} numberOfLines={2}>{s.title}</Text>
+                        <Text style={[wlSt.gridSubtitle, isDone && { color: '#68D391' }]}>{epSub}</Text>
                       </Pressable>
                     );
                   })}

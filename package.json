@@ -1,6 +1,6 @@
 {
   "name": "screenvault",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "private": true,
   "description": "ScreenVault — Private cinema & series vault",
   "scripts": {
@@ -11,4 +11,3 @@
     "lint": "npm --prefix mobile run lint"
   }
 }
-
