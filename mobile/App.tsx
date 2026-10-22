@@ -3772,6 +3772,7 @@ function Profile({
         overScrollMode="never"
         bounces={false}
         alwaysBounceVertical={false}
+        style={{ flex: 1, overscrollBehavior: 'none', overscrollBehaviorY: 'none' } as any}
       >
         {/* Top Banner with Settings Gear (Word "Perfil" removed as requested) */}
         <View style={profSt.cleanProfileBanner}>
@@ -3780,10 +3781,10 @@ function Profile({
           ) : (
             <View style={[profSt.cleanProfileBannerImg, { backgroundColor: '#161318' }]} />
           )}
-          <View style={profSt.cleanBannerOverlay} />
+          <View style={profSt.cleanBannerOverlay} pointerEvents="none" />
 
           {/* Header Controls Over Banner: Clean top-right gear button */}
-          <View style={[profSt.headerRowOverBanner, { justifyContent: 'flex-end' }]}>
+          <View style={[profSt.headerRowOverBanner, { justifyContent: 'flex-end', position: 'absolute', top: 0, right: 0, left: 0, zIndex: 30 }]}>
             <Pressable onPress={onOpenSettings} style={profSt.gearButton} hitSlop={10}>
               <Text style={profSt.gearIcon}>⚙</Text>
             </Pressable>
@@ -4137,6 +4138,105 @@ function Profile({
           <Text style={profSt.versionText}>{t.versionText}</Text>
         </View>
       </ScrollView>
+
+      
+      {/* Settings Modal (Language, Photo/Cover Customization & Sign out) */}
+      <Modal visible={settingsOpen} animationType="slide" transparent onRequestClose={onCloseSettings}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modal, { maxHeight: '88%' }]}>
+            <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
+              <Text style={styles.modalTitle}>{t.settings}</Text>
+
+              {/* Photo & Cover Customization */}
+              <Text style={profSt.settingsSectionLabel}>{t.profileCustomization}</Text>
+              <View style={profSt.settingsMediaRow}>
+                {/* Photo / Avatar Section */}
+                <View style={profSt.settingsMediaCard}>
+                  <Text style={profSt.settingsMediaTitle}>👤 {t.profilePhoto}</Text>
+                  <AvatarPicker
+                    avatar={avatar}
+                    onPick={onUploadAvatar}
+                    label={avatar ? t.changePhoto : t.addPhoto}
+                    lang={lang}
+                  />
+                </View>
+
+                {/* Cover Banner Section */}
+                <View style={profSt.settingsMediaCard}>
+                  <Text style={profSt.settingsMediaTitle}>🖼 {t.coverImage}</Text>
+                  <BannerPicker
+                    banner={banner}
+                    onPick={onUploadBanner}
+                    onRemove={onRemoveBanner}
+                    lang={lang}
+                  />
+                </View>
+              </View>
+
+              {/* Language Selector */}
+              <Text style={profSt.settingsSectionLabel}>{t.language}</Text>
+              <View style={profSt.langRow}>
+                <Pressable
+                  onPress={() => onChangeLang('pt')}
+                  style={[profSt.langBtn, lang === 'pt' && profSt.langBtnActive]}
+                >
+                  <Text style={[profSt.langBtnText, lang === 'pt' && profSt.langBtnTextActive]}>
+                    🇵🇹 Português (PT)
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={() => onChangeLang('en')}
+                  style={[profSt.langBtn, lang === 'en' && profSt.langBtnActive]}
+                >
+                  <Text style={[profSt.langBtnText, lang === 'en' && profSt.langBtnTextActive]}>
+                    🇬🇧 English
+                  </Text>
+                </Pressable>
+              </View>
+
+              {/* Account Info & Sign Out */}
+              {email ? (
+                <View style={{ marginTop: 20 }}>
+                  <Text style={profSt.accountEmail}>{email}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 8 }}>
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#22c55e', marginRight: 6 }} />
+                    <Text style={{ color: '#22c55e', fontSize: 13, fontWeight: '600' }}>
+                      {lang === 'pt' ? 'Sincronizado na Nuvem' : 'Cloud Synced'}
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={() => {
+                      onCloseSettings();
+                      onSignOut();
+                    }}
+                    style={profSt.signOutButton}
+                  >
+                    <Text style={profSt.signOutText}>{t.signOut}</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <View style={{ marginTop: 20 }}>
+                  <Text style={profSt.accountEmail}>{t.notSignedIn}</Text>
+                  <Pressable
+                    onPress={() => {
+                      onCloseSettings();
+                      onSignOut();
+                    }}
+                    style={[profSt.signOutButton, { backgroundColor: C.surface2, borderWidth: 1, borderColor: C.gold }]}
+                  >
+                    <Text style={[profSt.signOutText, { color: C.gold }]}>{t.signInTab}</Text>
+                  </Pressable>
+                </View>
+              )}
+
+              <Pressable onPress={onCloseSettings} style={{ marginTop: 22, alignSelf: 'center', paddingVertical: 6 }}>
+                <Text style={styles.cancel}>{t.close}</Text>
+              </Pressable>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {/* Edit Profile Modal (Username & Bio) */}
       <Modal visible={editModalOpen} animationType="slide" transparent onRequestClose={() => setEditModalOpen(false)}>
@@ -7066,7 +7166,7 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.border,
     flexDirection: 'row', justifyContent: 'space-around', paddingTop: 6,
     paddingBottom: (Platform.OS === 'web'
-      ? 'max(14px, env(safe-area-inset-bottom, 14px))'
+      ? 'max(6px, env(safe-area-inset-bottom, 6px))'
       : Platform.OS === 'ios'
       ? 24
       : 8) as any,
