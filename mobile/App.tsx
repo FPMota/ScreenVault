@@ -3765,34 +3765,6 @@ function Profile({
           </Pressable>
         </View>
 
-        {/* Friends Bar / Action */}
-        <Pressable
-          onPress={() => onNavigateTab('friends')}
-          style={profSt.friendsBar}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
-            <View style={profSt.friendsIconCircle}>
-              <Text style={{ fontSize: 18 }}>👥</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={profSt.friendsBarTitle}>{t.friends}</Text>
-              <Text style={profSt.friendsBarSubtitle} numberOfLines={1}>
-                {acceptedFriends.length === 0
-                  ? t.noFriendsYet
-                  : `${acceptedFriends.length} ${t.friendsCount.toLowerCase()}`}
-              </Text>
-            </View>
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            {pendingIncoming.length > 0 && (
-              <View style={profSt.friendsBadge}>
-                <Text style={profSt.friendsBadgeText}>{pendingIncoming.length}</Text>
-              </View>
-            )}
-            <Text style={profSt.friendsChevron}>›</Text>
-          </View>
-        </Pressable>
-
         {/* Continue Watching section in Profile */}
         <View style={{ marginTop: 22 }}>
           <View style={profSt.sectionBar}>
@@ -5670,6 +5642,30 @@ function SearchCatalogModal({
 
 // ─── Shared Components ────────────────────────────────────────────────────────
 
+function FriendsLineIcon({ size = 20, color = C.muted }: { size?: number; color?: string }) {
+  if (Platform.OS === 'web') {
+    return (
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke={color}
+        strokeWidth="1.9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        style={{ display: 'inline-block', verticalAlign: 'middle', flexShrink: 0 }}
+      >
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      </svg>
+    );
+  }
+  return <Text style={{ color, fontSize: size, fontWeight: '400' }}>⚇</Text>;
+}
+
 function SearchIcon({ size = 15, color = C.bordeaux }: { size?: number; color?: string }) {
   if (Platform.OS === 'web') {
     return (
@@ -5771,7 +5767,7 @@ function TabBar({
     ['home', '⌂', t.home],
     ['library', '▦', t.library],
     ['watchlist', '☆', t.watchlist],
-    ['friends', '👥', t.friends],
+    ['friends', 'friends_line', t.friends],
     ['profile', '◉', t.profile],
   ];
 
@@ -5779,13 +5775,20 @@ function TabBar({
     <View style={styles.tabbar}>
       {tabs.map(([key, icon, label]) => {
         const isActive = tab === key;
+        const iconColor = isActive ? C.bordeaux : C.muted;
         const hasBadge = key === 'friends' && pendingRequestsCount > 0;
         return (
           <Pressable key={key} onPress={() => setTab(key)} style={styles.tab}>
-            <View style={{ position: 'relative' }}>
-              <Animated.Text style={[styles.tabIcon, isActive && styles.tabIconActive]}>
-                {icon}
-              </Animated.Text>
+            <View style={{ position: 'relative', alignItems: 'center', justifyContent: 'center', height: 26 }}>
+              {key === 'friends' ? (
+                <Animated.View style={isActive && styles.tabIconActive}>
+                  <FriendsLineIcon size={22} color={iconColor} />
+                </Animated.View>
+              ) : (
+                <Animated.Text style={[styles.tabIcon, isActive && styles.tabIconActive]}>
+                  {icon}
+                </Animated.Text>
+              )}
               {hasBadge && (
                 <View style={styles.tabBadge}>
                   <Text style={styles.tabBadgeText}>
