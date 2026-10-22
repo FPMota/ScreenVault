@@ -1103,10 +1103,22 @@ export default function App() {
           if (data.avatar_url) {
             setAvatar(data.avatar_url);
             AsyncStorage.setItem(AVATAR_KEY, data.avatar_url).catch(() => undefined);
+          } else {
+            AsyncStorage.getItem(AVATAR_KEY).then((localAv) => {
+              if (localAv && supabase) {
+                void supabase.from('profiles').update({ avatar_url: localAv }).eq('id', session.user.id);
+              }
+            }).catch(() => undefined);
           }
           if ((data as any).banner_url) {
             setBanner((data as any).banner_url);
             AsyncStorage.setItem(BANNER_KEY, (data as any).banner_url).catch(() => undefined);
+          } else {
+            AsyncStorage.getItem(BANNER_KEY).then((localBn) => {
+              if (localBn && supabase) {
+                void supabase.from('profiles').update({ banner_url: localBn }).eq('id', session.user.id);
+              }
+            }).catch(() => undefined);
           }
         } else if (!data && supabase) {
           // Automatically create initial profile so all users appear immediately
@@ -1583,11 +1595,14 @@ export default function App() {
         updated_at: new Date().toISOString(),
       }).eq('id', session.user.id);
       if (updErr) {
-        await supabase.from('profiles').upsert({
+        const { error: upsertErr } = await supabase.from('profiles').upsert({
           id: session.user.id,
           avatar_url: uri,
           updated_at: new Date().toISOString(),
         });
+        if (upsertErr && (upsertErr.message?.includes('avatar_url') || upsertErr.code === '42703')) {
+          alert(lang === 'pt' ? 'Para gravar a foto no servidor, adiciona a coluna avatar_url no SQL do Supabase:\nALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url text;' : 'Add avatar_url column in Supabase SQL editor.');
+        }
       }
     } catch (e) {
       console.warn('Error persisting avatar to profiles:', e);
@@ -1623,11 +1638,14 @@ export default function App() {
         updated_at: new Date().toISOString(),
       }).eq('id', session.user.id);
       if (updErr) {
-        await supabase.from('profiles').upsert({
+        const { error: upsertErr } = await supabase.from('profiles').upsert({
           id: session.user.id,
           banner_url: uri,
           updated_at: new Date().toISOString(),
         });
+        if (upsertErr && (upsertErr.message?.includes('banner_url') || upsertErr.code === '42703')) {
+          alert(lang === 'pt' ? 'Para gravar a capa no servidor, adiciona a coluna banner_url no SQL do Supabase:\nALTER TABLE profiles ADD COLUMN IF NOT EXISTS banner_url text;' : 'Add banner_url column in Supabase SQL editor.');
+        }
       }
     } catch (e) {
       console.warn('Error persisting banner to profiles:', e);
@@ -1682,7 +1700,6 @@ export default function App() {
   const tabContent = (
     <Animated.View
       style={[styles.content, { transform: [{ translateX: slideAnim }], opacity: tabOpacity }]}
-      {...panResponder.panHandlers}
     >
       {tab === 'home' && (
         <Home
@@ -2791,11 +2808,12 @@ function FriendProfileModal({
   );
   const [watchlist, setWatchlist] = useState<TmdbResult[]>(fallbackWatchlist && user.id === currentUserId ? fallbackWatchlist : []);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'completed' | 'watching' | 'all' | 'watchlist'>('completed');
+  const [activeTab, setActiveTab] = useState<'completed' | 'watching' | 'all' | 'watchlist'>('all');
   const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
     setProfile(user);
+    setActiveTab('all');
   }, [user]);
 
   useEffect(() => {
