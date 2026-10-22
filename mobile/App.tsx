@@ -20,6 +20,7 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
 import {
@@ -96,6 +97,17 @@ const LIBRARY_VIEW_KEY = '@screenvault/library_view_mode-v1';
 const WATCHLIST_VIEW_KEY = '@screenvault/watchlist_view_mode-v1';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
+
+function useGridMetrics() {
+  const { width } = useWindowDimensions();
+  const safeWidth = width && width > 0 ? width : SCREEN_W;
+  const padding = 24; // 12px on each side
+  const gap = 8;
+  // User requested at least 4 items per row. On larger screens, scale smoothly.
+  const numColumns = Math.max(4, Math.floor((safeWidth - padding + gap) / (90 + gap)));
+  const cardWidth = Math.floor((safeWidth - padding - gap * (numColumns - 1)) / numColumns);
+  return { numColumns, cardWidth, gap };
+}
 
 // ─── Translations ─────────────────────────────────────────────────────────────
 
@@ -1969,6 +1981,7 @@ function Library({
   onAddToLibrary: (item: TmdbResult) => void;
   lang: Language;
 }) {
+  const { numColumns, cardWidth, gap } = useGridMetrics();
   const t = i18n[lang];
   const [filter, setFilter] = useState<'all' | 'series' | 'movies'>('all');
   const [query, setQuery] = useState('');
@@ -2158,13 +2171,13 @@ function Library({
         )
       ) : isCompact ? (
         <FlatList
-          key={`lib-grid-${filteredMyLibrary.length}`}
+          key={`lib-grid-${numColumns}-${filteredMyLibrary.length}`}
           data={filteredMyLibrary}
           extraData={filteredMyLibrary}
-          numColumns={3}
+          numColumns={numColumns}
           keyExtractor={(s, idx) => `grid-${s.mediaType ?? 'series'}-${s.tmdbId ?? s.title}-${idx}`}
           contentContainerStyle={wlSt.gridContainer}
-          columnWrapperStyle={wlSt.gridRow}
+          columnWrapperStyle={[wlSt.gridRow, { gap }]}
           showsVerticalScrollIndicator={false}
           overScrollMode="always"
           bounces
@@ -2201,7 +2214,7 @@ function Library({
               : (item.totalEpisodes > 0 ? `${watched}/${item.totalEpisodes}` : null);
 
             return (
-              <Pressable onPress={() => open(item)} style={wlSt.gridCard}>
+              <Pressable onPress={() => open(item)} style={[wlSt.gridCard, { width: cardWidth }]}>
                 <View style={wlSt.gridPoster}>
                   {item.posterPath ? (
                     <Image source={{ uri: posterUrl(item.posterPath) }} style={wlSt.gridPosterImg} resizeMode="cover" />
@@ -2209,12 +2222,12 @@ function Library({
                     <Text style={homeSt.fallbackPosterText}>{item.title.slice(0, 1)}</Text>
                   )}
                   {badgeText ? (
-                    <View style={[homeSt.epBadge, isDone && { borderColor: '#2E7D32' }]}>
-                      <Text style={[homeSt.epBadgeText, isDone && { color: '#68D391' }]}>{badgeText}</Text>
+                    <View style={[wlSt.gridEpBadge, isDone && { borderColor: '#2E7D32' }]}>
+                      <Text style={[wlSt.gridEpBadgeText, isDone && { color: '#68D391' }]}>{badgeText}</Text>
                     </View>
                   ) : null}
                 </View>
-                <Text style={wlSt.gridTitle} numberOfLines={1}>{item.title}</Text>
+                <Text style={wlSt.gridTitle} numberOfLines={2}>{item.title}</Text>
                 <Text style={[wlSt.gridSubtitle, isDone && { color: '#68D391' }]}>{epSub}</Text>
               </Pressable>
             );
@@ -2287,6 +2300,7 @@ function Watchlist({
   onAddToWatchlist: (item: TmdbResult) => void;
   lang: Language;
 }) {
+  const { numColumns, cardWidth, gap } = useGridMetrics();
   const t = i18n[lang];
   const [isCompact, setIsCompact] = useState(true);
   const [query, setQuery] = useState('');
@@ -2443,13 +2457,13 @@ function Watchlist({
         </View>
       ) : isCompact ? (
         <FlatList
-          key={`compact-grid-${displayItems.length}`}
+          key={`compact-grid-${numColumns}-${displayItems.length}`}
           data={displayItems}
           extraData={displayItems}
-          numColumns={3}
+          numColumns={numColumns}
           keyExtractor={(item, index) => `${item.mediaType || 'item'}-${item.id || item.title || index}-${index}`}
           contentContainerStyle={wlSt.gridContainer}
-          columnWrapperStyle={wlSt.gridRow}
+          columnWrapperStyle={[wlSt.gridRow, { gap }]}
           showsVerticalScrollIndicator={false}
           overScrollMode="always"
           bounces
@@ -2470,7 +2484,7 @@ function Watchlist({
               : (epCount ? (epWatched > 0 ? `${epWatched}/${epCount}` : `${epCount} eps`) : null);
 
             return (
-              <Pressable onPress={() => open(item)} style={wlSt.gridCard}>
+              <Pressable onPress={() => open(item)} style={[wlSt.gridCard, { width: cardWidth }]}>
                 <View style={wlSt.gridPoster}>
                   {item.posterPath ? (
                     <Image source={{ uri: posterUrl(item.posterPath) }} style={wlSt.gridPosterImg} resizeMode="cover" />
@@ -2478,8 +2492,8 @@ function Watchlist({
                     <Text style={homeSt.fallbackPosterText}>{item.title.slice(0, 1)}</Text>
                   )}
                   {badgeText ? (
-                    <View style={homeSt.epBadge}>
-                      <Text style={homeSt.epBadgeText}>{badgeText}</Text>
+                    <View style={wlSt.gridEpBadge}>
+                      <Text style={wlSt.gridEpBadgeText}>{badgeText}</Text>
                     </View>
                   ) : null}
                   <Pressable
@@ -2493,7 +2507,7 @@ function Watchlist({
                     <Text style={wlSt.removeBadgeText}>✕</Text>
                   </Pressable>
                 </View>
-                <Text style={wlSt.gridTitle} numberOfLines={1}>{item.title}</Text>
+                <Text style={wlSt.gridTitle} numberOfLines={2}>{item.title}</Text>
                 <Text style={wlSt.gridSubtitle}>{epSub}</Text>
               </Pressable>
             );
@@ -2610,6 +2624,7 @@ function Profile({
   onRemoveFriendship?: (friendshipId: string) => Promise<void>;
   onSearchUsers?: (query: string) => Promise<FriendProfile[]>;
 }) {
+  const { numColumns, cardWidth, gap } = useGridMetrics();
   const t = i18n[lang];
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [draftUsername, setDraftUsername] = useState(username);
@@ -3118,11 +3133,12 @@ function Profile({
           </View>
 
           <FlatList
+            key={`seeall-grid-${numColumns}-${seeAllModal.items.length}`}
             data={seeAllModal.items}
-            numColumns={3}
+            numColumns={numColumns}
             keyExtractor={(it, idx) => ('tmdbId' in it ? `s-${it.tmdbId ?? it.title}` : `w-${'id' in it ? it.id : idx}`)}
             contentContainerStyle={wlSt.gridContainer}
-            columnWrapperStyle={wlSt.gridRow}
+            columnWrapperStyle={[wlSt.gridRow, { gap }]}
             showsVerticalScrollIndicator={false}
             overScrollMode="always"
             bounces
@@ -3164,7 +3180,7 @@ function Profile({
                     setSeeAllModal({ visible: false, title: '', items: [] });
                     open(it);
                   }}
-                  style={wlSt.gridCard}
+                  style={[wlSt.gridCard, { width: cardWidth }]}
                 >
                   <View style={wlSt.gridPoster}>
                     {it.posterPath ? (
@@ -3173,12 +3189,12 @@ function Profile({
                       <Text style={homeSt.fallbackPosterText}>{it.title.slice(0, 1)}</Text>
                     )}
                     {badgeText ? (
-                      <View style={[homeSt.epBadge, isDone && { borderColor: '#2E7D32' }]}>
-                        <Text style={[homeSt.epBadgeText, isDone && { color: '#68D391' }]}>{badgeText}</Text>
+                      <View style={[wlSt.gridEpBadge, isDone && { borderColor: '#2E7D32' }]}>
+                        <Text style={[wlSt.gridEpBadgeText, isDone && { color: '#68D391' }]}>{badgeText}</Text>
                       </View>
                     ) : null}
                   </View>
-                  <Text style={wlSt.gridTitle} numberOfLines={1}>{it.title}</Text>
+                  <Text style={wlSt.gridTitle} numberOfLines={2}>{it.title}</Text>
                   <Text style={[wlSt.gridSubtitle, isDone && { color: '#68D391' }]}>{epSub}</Text>
                 </Pressable>
               );
@@ -5394,9 +5410,9 @@ const wlSt = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12,
   },
   viewModeIcon: { color: C.gold, fontSize: 14, fontWeight: '700' },
-  gridContainer: { paddingHorizontal: 16, paddingBottom: 100, paddingTop: 10 },
-  gridRow: { justifyContent: 'flex-start', gap: 12, marginBottom: 16 },
-  gridCard: { width: (SCREEN_W - 32 - 24) / 3, alignItems: 'center' },
+  gridContainer: { paddingHorizontal: 12, paddingBottom: 100, paddingTop: 10 },
+  gridRow: { justifyContent: 'flex-start', gap: 8, marginBottom: 14 },
+  gridCard: { width: Math.floor((SCREEN_W - 24 - 24) / 4), alignItems: 'center' },
   gridPoster: {
     width: '100%', aspectRatio: 2 / 3, borderRadius: 8,
     overflow: 'hidden', backgroundColor: C.surface2,
@@ -5404,21 +5420,28 @@ const wlSt = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   gridPosterImg: { width: '100%', height: '100%' },
-  gridTitle: { color: C.cream, fontSize: 14, fontWeight: '600', marginTop: 6, textAlign: 'center', lineHeight: 18 },
+  gridTitle: { color: C.cream, fontSize: 12, fontWeight: '600', marginTop: 4, textAlign: 'center', lineHeight: 15 },
   gridSubtitle: {
     color: C.gold,
-    fontSize: 12.5,
+    fontSize: 11,
     fontWeight: '700',
-    marginTop: 2,
+    marginTop: 1,
     textAlign: 'center',
-    lineHeight: 15,
+    lineHeight: 13,
   },
+  gridEpBadge: {
+    position: 'absolute', bottom: 3, right: 3,
+    backgroundColor: 'rgba(16,12,13,0.92)', borderRadius: 5,
+    paddingHorizontal: 4, paddingVertical: 2,
+    borderWidth: 1, borderColor: '#5C2D37',
+  },
+  gridEpBadgeText: { color: C.gold, fontSize: 10, fontWeight: '800', letterSpacing: 0.2 },
   removeBadge: {
-    position: 'absolute', top: 4, right: 4,
-    backgroundColor: 'rgba(0,0,0,0.75)', borderRadius: 13,
-    width: 26, height: 26, alignItems: 'center', justifyContent: 'center',
+    position: 'absolute', top: 3, right: 3,
+    backgroundColor: 'rgba(0,0,0,0.75)', borderRadius: 11,
+    width: 22, height: 22, alignItems: 'center', justifyContent: 'center',
   },
-  removeBadgeText: { color: C.cream, fontSize: 13, fontWeight: '800' },
+  removeBadgeText: { color: C.cream, fontSize: 11, fontWeight: '800' },
 });
 
 const catSt = StyleSheet.create({
