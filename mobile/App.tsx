@@ -1764,8 +1764,8 @@ export default function App() {
   );
 
   return (
-    <View style={styles.safe}>
-      <StatusBar style="light" />
+    <View style={[styles.safe, tab === 'profile' && { paddingTop: 0 }]}>
+      <StatusBar style="light"  />
       {selected ? (() => {
         const selectedTmdbId = 'tmdbId' in selected ? selected.tmdbId : ('id' in selected ? selected.id : undefined);
         const libMatch = library.find(
@@ -1801,7 +1801,7 @@ export default function App() {
       })() : (
         <>
           {tabContent}
-          <View style={{ backgroundColor: C.surface }}>
+          <View style={{ backgroundColor: C.surface, width: '100%' }}>
             <TabBar tab={tab} setTab={goToTab} lang={lang} pendingRequestsCount={friends.filter(f => f.status === 'pending' && f.friendId === session?.user?.id).length} />
           </View>
           <SearchCatalogModal
@@ -2061,7 +2061,12 @@ function Home({
           <Text style={styles.wordmark}>SCREENVAULT</Text>
           <Text style={[styles.pageTitle, { marginTop: 0 }]}>{t.home}</Text>
         </View>
-        <Image source={require('./assets/icon.png')} style={homeSt.titleIcon} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingBottom: 2 }}>
+          <View style={homeSt.versionBadge}>
+            <Text style={homeSt.versionBadgeText}>v1.4.0</Text>
+          </View>
+          <Image source={require('./assets/icon.png')} style={[homeSt.titleIcon, { marginBottom: 0 }]} />
+        </View>
       </View>
 
       <ScrollView
@@ -3744,10 +3749,11 @@ function Profile({
   return (
     <View style={styles.flex}>
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 110 }}
+        contentContainerStyle={{ paddingBottom: 160 }}
         showsVerticalScrollIndicator={false}
-        overScrollMode="always"
-        bounces
+        overScrollMode="never"
+        bounces={false}
+        alwaysBounceVertical={false}
       >
         {/* Top Banner with Settings Gear (Word "Perfil" removed as requested) */}
         <View style={profSt.cleanProfileBanner}>
@@ -5943,6 +5949,20 @@ const authSt = StyleSheet.create({
 });
 
 const homeSt = StyleSheet.create({
+  versionBadge: {
+    backgroundColor: 'rgba(212, 175, 55, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.35)',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  versionBadgeText: {
+    color: C.gold,
+    fontSize: 11.5,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
   topBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -6954,6 +6974,9 @@ const detailSt = StyleSheet.create({
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
+    height: (Platform.OS === 'web' ? '100dvh' : undefined) as any,
+    maxHeight: (Platform.OS === 'web' ? '100dvh' : undefined) as any,
+    overflow: 'hidden',
     backgroundColor: C.bg,
     paddingTop: (Platform.OS === 'web' ? 'env(safe-area-inset-top, 0px)' : Platform.OS === 'ios' ? 44 : 0) as any,
   },
@@ -7025,9 +7048,9 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.border,
     flexDirection: 'row', justifyContent: 'space-around', paddingTop: 6,
     paddingBottom: (Platform.OS === 'web'
-      ? 'max(10px, env(safe-area-inset-bottom, 10px))'
+      ? 'max(14px, env(safe-area-inset-bottom, 14px))'
       : Platform.OS === 'ios'
-      ? 28
+      ? 24
       : 8) as any,
   },
   tab: { alignItems: 'center', minWidth: 60, flex: 1, paddingVertical: 2 },
