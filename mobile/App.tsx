@@ -2772,6 +2772,38 @@ function Watchlist({
 
 // ─── Friend Profile Viewer Modal ──────────────────────────────────────────
 
+
+function computeWatchTimeString(seriesList: Series[], lang: Language): string {
+  let totalMinutes = 0;
+  for (const s of seriesList) {
+    if (s.mediaType === 'movie') {
+      const watched = s.watchedEpisodes ?? 0;
+      const isDone = watched >= 1 || s.collection === 'up_to_date';
+      if (isDone) {
+        totalMinutes += 115;
+      }
+    } else {
+      const watched = s.watchedEpisodes ?? 0;
+      totalMinutes += watched * 45;
+    }
+  }
+
+  const days = Math.floor(totalMinutes / (24 * 60));
+  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
+  const mins = totalMinutes % 60;
+
+  if (days > 0) {
+    return lang === 'pt' ? `${days}d ${hours}h assistidos` : `${days}d ${hours}h watched`;
+  }
+  if (hours > 0) {
+    return lang === 'pt' ? `${hours}h ${mins}m assistidos` : `${hours}h ${mins}m watched`;
+  }
+  if (mins > 0) {
+    return lang === 'pt' ? `${mins}m assistidos` : `${mins}m watched`;
+  }
+  return lang === 'pt' ? '0h assistidas' : '0h watched';
+}
+
 function FriendProfileModal({
   user,
   currentUserId,
@@ -2987,6 +3019,11 @@ function FriendProfileModal({
             {profile.bio ? (
               <Text style={profSt.cleanBio} numberOfLines={2}>{profile.bio}</Text>
             ) : null}
+
+            {/* Watch Time Badge below description */}
+            <View style={profSt.cleanWatchTimeBadge}>
+              <Text style={profSt.cleanWatchTimeText}>⏱ {computeWatchTimeString(series, lang)}</Text>
+            </View>
 
             {/* Centered Gold Status Pill / Action */}
             <View style={profSt.cleanPillRow}>
@@ -3815,6 +3852,11 @@ function Profile({
           {bio ? (
             <Text style={profSt.cleanBio} numberOfLines={3}>{bio}</Text>
           ) : null}
+
+          {/* Watch Time Badge below description */}
+          <View style={profSt.cleanWatchTimeBadge}>
+            <Text style={profSt.cleanWatchTimeText}>⏱ {computeWatchTimeString(library, lang)}</Text>
+          </View>
 
           {/* Centered Action Pill (Editar Perfil) */}
           <View style={profSt.cleanPillRow}>
@@ -6634,19 +6676,37 @@ const profSt = StyleSheet.create({
     height: '100%',
   },
   cleanUsername: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '800',
     color: C.cream,
     textAlign: 'center',
-    letterSpacing: 0.3,
+    letterSpacing: 0.4,
   },
   cleanBio: {
-    fontSize: 13,
-    color: C.muted,
+    fontSize: 15,
+    color: '#C6BFC2',
     textAlign: 'center',
-    marginTop: 4,
+    marginTop: 5,
     paddingHorizontal: 20,
-    lineHeight: 18,
+    lineHeight: 21,
+  },
+  cleanWatchTimeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 14,
+    backgroundColor: 'rgba(212, 175, 55, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.25)',
+  },
+  cleanWatchTimeText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: C.gold,
+    letterSpacing: 0.3,
   },
   cleanPillRow: {
     alignItems: 'center',
