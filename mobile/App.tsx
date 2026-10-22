@@ -2281,24 +2281,7 @@ function Library({
                     </Text>
                   </View>
                   <View style={catSt.actionCol}>
-                    <Pressable
-                      style={[
-                        catSt.addButton,
-                        inLib && { backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
-                      ]}
-                      onPress={(e) => {
-                        e.stopPropagation();
-                        if (!inLib) {
-                          onAddToLibrary(item);
-                        } else {
-                          open(item);
-                        }
-                      }}
-                    >
-                      <Text style={[catSt.addText, inLib && { color: C.muted }]}>
-                        {inLib ? '✓' : `+ ${lang === 'pt' ? 'Adicionar' : 'Add'}`}
-                      </Text>
-                    </Pressable>
+                    <Text style={{ color: C.gold, fontSize: 26, fontWeight: '700', paddingHorizontal: 6 }}>›</Text>
                   </View>
                 </Pressable>
               );
@@ -2561,26 +2544,7 @@ function Watchlist({
                     </Text>
                   </View>
                   <View style={catSt.actionCol}>
-                    <Pressable
-                      style={[
-                        catSt.addButton,
-                        inWl
-                          ? { backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border }
-                          : { backgroundColor: '#C4A35A' },
-                      ]}
-                      onPress={(e) => {
-                        e.stopPropagation();
-                        if (!inWl) {
-                          onAddToWatchlist(item);
-                        } else {
-                          open(item);
-                        }
-                      }}
-                    >
-                      <Text style={[catSt.addText, inWl && { color: C.muted }]}>
-                        {inWl ? '✓' : `⭐ + ${lang === 'pt' ? 'Watchlist' : 'Watchlist'}`}
-                      </Text>
-                    </Pressable>
+                    <Text style={{ color: C.gold, fontSize: 26, fontWeight: '700', paddingHorizontal: 6 }}>›</Text>
                   </View>
                 </Pressable>
               );
@@ -5090,15 +5054,7 @@ function SearchCatalogModal({
                       <Text numberOfLines={2} style={catSt.overview}>{item.overview || t.noOverview}</Text>
                     </View>
                     <View style={catSt.actionCol}>
-                      <Pressable
-                        style={catSt.addButton}
-                        onPress={(e) => {
-                          e.stopPropagation();
-                          setSelectedTargetItem(item);
-                        }}
-                      >
-                        <Text style={catSt.addText}>+ Add</Text>
-                      </Pressable>
+                      <Text style={{ color: C.gold, fontSize: 26, fontWeight: '700', paddingHorizontal: 6 }}>›</Text>
                     </View>
                   </Pressable>
                 );
