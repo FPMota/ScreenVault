@@ -7164,14 +7164,14 @@ const styles = StyleSheet.create({
   chevron: { color: C.border, fontSize: 22 },
   tabbar: {
     backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.border,
-    flexDirection: 'row', justifyContent: 'space-around', paddingTop: 6,
+    flexDirection: 'row', justifyContent: 'space-around', paddingTop: 4,
     paddingBottom: (Platform.OS === 'web'
-      ? 'max(6px, env(safe-area-inset-bottom, 6px))'
+      ? 'max(4px, calc(env(safe-area-inset-bottom, 16px) - 16px))'
       : Platform.OS === 'ios'
-      ? 24
-      : 8) as any,
+      ? 12
+      : 6) as any,
   },
-  tab: { alignItems: 'center', minWidth: 60, flex: 1, paddingVertical: 2 },
+  tab: { alignItems: 'center', minWidth: 60, flex: 1, paddingVertical: 1 },
   tabBadge: {
     position: 'absolute',
     top: -2,
@@ -7189,7 +7189,7 @@ const styles = StyleSheet.create({
   tabBadgeText: { color: C.cream, fontSize: 10, fontWeight: '800' },
   tabIcon: { color: C.muted, fontSize: 22 },
   tabIconActive: { color: C.bordeaux, transform: [{ scale: 1.15 }] },
-  tabLabel: { color: C.muted, fontSize: 13, marginTop: 2 },
+  tabLabel: { color: C.muted, fontSize: 11, marginTop: 1 },
   tabLabelActive: { color: C.bordeaux, fontWeight: '800' },
   back: { color: C.gold, fontSize: 17 },
   primaryButton: { backgroundColor: C.bordeaux, padding: 14, borderRadius: 11, alignItems: 'center', marginTop: 20 },
