@@ -69,6 +69,7 @@ export type FriendProfile = {
   username?: string;
   bio?: string;
   avatarUrl?: string;
+  bannerUrl?: string;
 };
 
 export type Friendship = {
@@ -225,6 +226,17 @@ export const i18n = {
     findFriends: 'Find Friends',
     refresh: 'Refresh',
     loading: 'Loading...',
+    viewProfile: 'View Profile',
+    friendProfile: 'Profile',
+    userLibrary: 'Library',
+    userWatchlist: 'Watchlist',
+    noWatchingSeries: 'No series currently being watched.',
+    noCompletedSeries: 'No completed series yet.',
+    noWatchlistItems: 'Watchlist is empty.',
+    episodesWatchedCount: 'Episodes Watched',
+    watchedSeriesCount: 'Series Watched',
+    watchingCount: 'Watching',
+    currentlyWatching: 'Watching',
   },
   pt: {
     home: 'Início',
@@ -339,6 +351,17 @@ export const i18n = {
     findFriends: 'Encontrar Amigos',
     refresh: 'Atualizar',
     loading: 'A carregar...',
+    viewProfile: 'Ver Perfil',
+    friendProfile: 'Perfil',
+    userLibrary: 'Biblioteca',
+    userWatchlist: 'Por Ver',
+    noWatchingSeries: 'Nenhuma série a ser vista no momento.',
+    noCompletedSeries: 'Ainda não concluiu nenhuma série.',
+    noWatchlistItems: 'A lista por ver está vazia.',
+    episodesWatchedCount: 'Episódios Vistos',
+    watchedSeriesCount: 'Séries Vistas',
+    watchingCount: 'A Ver',
+    currentlyWatching: 'A Ver',
   },
 };
 
@@ -449,16 +472,18 @@ export default function App() {
       if (otherUids.length > 0) {
         const { data: profs } = await supabase
           .from('profiles')
-          .select('id, username, bio, avatar_url')
+          .select('*')
           .in('id', otherUids);
 
         if (profs) {
           profs.forEach((p: any) => {
+            const rawName = p.username || (p.email ? p.email.split('@')[0] : (p.full_name || `user_${p.id.slice(0, 6)}`));
             profilesMap[p.id] = {
               id: p.id,
-              username: p.username ?? undefined,
+              username: rawName,
               bio: p.bio ?? undefined,
               avatarUrl: p.avatar_url ?? undefined,
+              bannerUrl: p.banner_url ?? undefined,
             };
           });
         }
@@ -466,13 +491,22 @@ export default function App() {
 
       const list: Friendship[] = data.map((r: any) => {
         const otherId = r.user_id === uid ? r.friend_id : r.user_id;
+        const fromMap = profilesMap[otherId];
+        const fromAll = allUsers.find((u) => u.id === otherId);
+        const resolvedName = fromMap?.username || fromAll?.username || `user_${otherId.slice(0, 6)}`;
         return {
           id: r.id,
           userId: r.user_id,
           friendId: r.friend_id,
           status: r.status as FriendshipStatus,
           createdAt: r.created_at,
-          friendProfile: profilesMap[otherId] || { id: otherId },
+          friendProfile: {
+            id: otherId,
+            username: resolvedName,
+            bio: fromMap?.bio ?? fromAll?.bio,
+            avatarUrl: fromMap?.avatarUrl ?? fromAll?.avatarUrl,
+            bannerUrl: fromMap?.bannerUrl ?? fromAll?.bannerUrl,
+          },
         };
       });
 
@@ -511,7 +545,7 @@ export default function App() {
       friendId: targetUserId,
       status: 'pending',
       createdAt: new Date().toISOString(),
-      friendProfile: targetProf,
+      friendProfile: targetProf || { id: targetUserId, username: `user_${targetUserId.slice(0, 6)}` },
     };
     setFriends((prev) => [optimisticF, ...prev.filter((f) => f.id !== tempId)]);
 
@@ -537,11 +571,15 @@ export default function App() {
   const respondFriendRequest = async (friendshipId: string, accept: boolean) => {
     if (!supabase || !session) return;
     if (accept) {
+      setFriends((prev) =>
+        prev.map((f) => (f.id === friendshipId ? { ...f, status: 'accepted' as FriendshipStatus } : f))
+      );
       await supabase.from('friendships').update({
         status: 'accepted',
         updated_at: new Date().toISOString(),
       }).eq('id', friendshipId);
     } else {
+      setFriends((prev) => prev.filter((f) => f.id !== friendshipId));
       await supabase.from('friendships').delete().eq('id', friendshipId);
     }
     fetchFriendships(session.user.id);
@@ -549,6 +587,7 @@ export default function App() {
 
   const removeFriendship = async (friendshipId: string) => {
     if (!supabase || !session) return;
+    setFriends((prev) => prev.filter((f) => f.id !== friendshipId));
     await supabase.from('friendships').delete().eq('id', friendshipId);
     fetchFriendships(session.user.id);
   };
@@ -559,20 +598,21 @@ export default function App() {
     const cleanQ = q.trim().replace(/^@/, '');
     let query = supabase
       .from('profiles')
-      .select('id, username, bio, avatar_url')
+      .select('*')
       .neq('id', uid);
 
     if (cleanQ) {
       query = query.ilike('username', `%${cleanQ}%`);
     }
 
-    const { data, error } = await query.order('updated_at', { ascending: false }).limit(50);
-    if (error || !data) return [];
+    const { data } = await query.limit(20);
+    if (!data) return [];
     return data.map((p: any) => ({
       id: p.id,
-      username: p.username ?? undefined,
+      username: p.username || (p.email ? p.email.split('@')[0] : (p.full_name || `user_${p.id.slice(0, 6)}`)),
       bio: p.bio ?? undefined,
       avatarUrl: p.avatar_url ?? undefined,
+      bannerUrl: p.banner_url ?? undefined,
     }));
   };
 
@@ -1652,6 +1692,7 @@ export default function App() {
           onRespondFriendRequest={respondFriendRequest}
           onRemoveFriendship={removeFriendship}
           onRefreshUsers={() => fetchAllUsers(session?.user?.id)}
+          onOpenSeries={setSelected}
           lang={lang}
         />
       )}
@@ -2674,7 +2715,442 @@ function Watchlist({
   );
 }
 
-// ─── Profile Screen ───────────────────────────────────────────────────────────
+// ─── Friend Profile Viewer Modal ──────────────────────────────────────────
+
+function FriendProfileModal({
+  user,
+  currentUserId,
+  friendship,
+  onClose,
+  onOpenSeries,
+  onSendFriendRequest,
+  onRespondFriendRequest,
+  onRemoveFriendship,
+  lang,
+}: {
+  user: FriendProfile;
+  currentUserId?: string;
+  friendship?: Friendship;
+  onClose: () => void;
+  onOpenSeries: (item: Series | TmdbResult) => void;
+  onSendFriendRequest: (targetUserId: string) => Promise<{ error?: string }>;
+  onRespondFriendRequest: (friendshipId: string, accept: boolean) => Promise<void>;
+  onRemoveFriendship: (friendshipId: string) => Promise<void>;
+  lang: Language;
+}) {
+  const t = i18n[lang];
+  const { cardWidth, gap } = useGridMetrics();
+  const [profile, setProfile] = useState<FriendProfile>(user);
+  const [series, setSeries] = useState<Series[]>([]);
+  const [watchlist, setWatchlist] = useState<TmdbResult[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'watching' | 'completed' | 'watchlist'>('watching');
+  const [actionLoading, setActionLoading] = useState(false);
+
+  useEffect(() => {
+    setProfile(user);
+  }, [user]);
+
+  useEffect(() => {
+    let mounted = true;
+    const fetchUserData = async () => {
+      if (!supabase || !user.id) {
+        setLoading(false);
+        return;
+      }
+      try {
+        setLoading(true);
+        // 1. Fetch user profile
+        const { data: profData } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        if (mounted && profData) {
+          const rawName = profData.username || (profData.email ? profData.email.split('@')[0] : (profData.full_name || `user_${profData.id.slice(0, 6)}`));
+          setProfile((prev) => ({
+            id: profData.id,
+            username: rawName || prev.username,
+            bio: profData.bio ?? prev.bio,
+            avatarUrl: profData.avatar_url ?? prev.avatarUrl,
+            bannerUrl: profData.banner_url ?? prev.bannerUrl,
+          }));
+        }
+
+        // 2. Fetch series
+        const { data: seriesData } = await supabase
+          .from('series_entries')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('title');
+
+        if (mounted && seriesData) {
+          const parsedSeries: Series[] = seriesData.map((r: any) => ({
+            title: r.title,
+            collection: r.collection as Collection,
+            watchedEpisodes: r.watched_episodes ?? 0,
+            totalEpisodes: r.total_episodes ?? 0,
+            mediaType: (r.media_type as 'series' | 'movie') || 'series',
+            tmdbId: r.tmdb_id ?? undefined,
+            posterPath: r.poster_path ?? undefined,
+            lastWatched: r.last_watched ? Number(r.last_watched) : undefined,
+          }));
+          setSeries(parsedSeries);
+        }
+
+        // 3. Fetch watchlist
+        const { data: wlData } = await supabase
+          .from('watchlist')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false });
+
+        if (mounted && wlData) {
+          const parsedWl: TmdbResult[] = wlData.map((r: any) => ({
+            id: Number(r.tmdb_id) || Number(r.id) || 0,
+            mediaType: (r.media_type as 'series' | 'movie') || 'series',
+            title: r.title,
+            posterPath: r.poster_path ?? undefined,
+            overview: r.overview ?? undefined,
+          }));
+          setWatchlist(parsedWl);
+        }
+      } catch (err) {
+        console.warn('Error fetching friend profile data:', err);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    fetchUserData();
+    return () => {
+      mounted = false;
+    };
+  }, [user.id]);
+
+  const watchingList = useMemo(
+    () => series.filter((s) => s.collection === 'watching' && (s.watchedEpisodes ?? 0) < (s.totalEpisodes ?? 0) && (s.watchedEpisodes ?? 0) > 0),
+    [series],
+  );
+
+  const completedList = useMemo(
+    () => series.filter((s) => ((s.watchedEpisodes ?? 0) >= (s.totalEpisodes ?? 0) && (s.totalEpisodes ?? 0) > 0) || s.collection === 'up_to_date'),
+    [series],
+  );
+
+  const totalEpisodes = useMemo(
+    () => series.reduce((sum, s) => sum + (s.watchedEpisodes ?? 0), 0),
+    [series],
+  );
+
+  // Default tab selection if watching is empty but completed has items
+  useEffect(() => {
+    if (!loading && watchingList.length === 0 && completedList.length > 0) {
+      setActiveTab('completed');
+    }
+  }, [loading, watchingList.length, completedList.length]);
+
+  const displayedUsername = profile.username ? `@${profile.username}` : `@user_${profile.id.slice(0, 6)}`;
+  const isMe = currentUserId === user.id;
+
+  const currentStatus = friendship?.status;
+  const isIncoming = currentStatus === 'pending' && friendship?.friendId === currentUserId;
+  const isOutgoing = currentStatus === 'pending' && friendship?.userId === currentUserId;
+  const isAccepted = currentStatus === 'accepted';
+
+  return (
+    <Modal visible animationType="slide" onRequestClose={onClose}>
+      <SafeAreaView style={styles.safe}>
+        <ScrollView contentContainerStyle={{ paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
+          {/* Banner */}
+          <View style={profSt.friendProfileBanner}>
+            {profile.bannerUrl ? (
+              <Image source={{ uri: profile.bannerUrl }} style={profSt.friendProfileBannerImg} resizeMode="cover" />
+            ) : (
+              <View style={[profSt.friendProfileBannerImg, { backgroundColor: C.surface2 }]} />
+            )}
+            <Pressable onPress={onClose} style={profSt.friendProfileCloseBtn} hitSlop={12}>
+              <Text style={{ color: C.cream, fontSize: 16, fontWeight: '700' }}>✕</Text>
+            </Pressable>
+          </View>
+
+          {/* Avatar & Action Button Row */}
+          <View style={profSt.friendProfileHeader}>
+            <View style={profSt.friendProfileAvatar}>
+              {profile.avatarUrl ? (
+                <Image source={{ uri: profile.avatarUrl }} style={profSt.friendProfileAvatarImg} />
+              ) : (
+                <Text style={{ fontSize: 32 }}>👤</Text>
+              )}
+            </View>
+
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              {isMe ? (
+                <View style={[profSt.friendActionBtnSecondary, { borderColor: C.gold }]}>
+                  <Text style={[profSt.friendActionBtnSecondaryText, { color: C.gold }]}>
+                    {lang === 'pt' ? 'Tu' : 'You'}
+                  </Text>
+                </View>
+              ) : isAccepted ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <View style={[profSt.friendActionBtnSecondary, { borderColor: C.gold, paddingHorizontal: 12 }]}>
+                    <Text style={[profSt.friendActionBtnSecondaryText, { color: C.gold }]}>
+                      ✓ {t.alreadyFriends}
+                    </Text>
+                  </View>
+                  {friendship ? (
+                    <Pressable
+                      onPress={async () => {
+                        setActionLoading(true);
+                        try {
+                          await onRemoveFriendship(friendship.id);
+                        } finally {
+                          setActionLoading(false);
+                        }
+                      }}
+                      disabled={actionLoading}
+                      style={profSt.friendActionBtnSecondary}
+                    >
+                      <Text style={profSt.friendActionBtnSecondaryText}>{t.removeFriend}</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              ) : isIncoming ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Pressable
+                    onPress={async () => {
+                      if (!friendship) return;
+                      setActionLoading(true);
+                      try {
+                        await onRespondFriendRequest(friendship.id, true);
+                      } finally {
+                        setActionLoading(false);
+                      }
+                    }}
+                    disabled={actionLoading}
+                    style={profSt.friendActionBtn}
+                  >
+                    <Text style={profSt.friendActionBtnText}>✓ {t.accept}</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={async () => {
+                      if (!friendship) return;
+                      setActionLoading(true);
+                      try {
+                        await onRespondFriendRequest(friendship.id, false);
+                      } finally {
+                        setActionLoading(false);
+                      }
+                    }}
+                    disabled={actionLoading}
+                    style={profSt.friendActionBtnSecondary}
+                  >
+                    <Text style={profSt.friendActionBtnSecondaryText}>✕</Text>
+                  </Pressable>
+                </View>
+              ) : isOutgoing ? (
+                <View style={profSt.friendActionBtnSecondary}>
+                  <Text style={profSt.friendActionBtnSecondaryText}>⌛ {t.requestSent}</Text>
+                </View>
+              ) : (
+                <Pressable
+                  onPress={async () => {
+                    setActionLoading(true);
+                    try {
+                      await onSendFriendRequest(user.id);
+                    } finally {
+                      setActionLoading(false);
+                    }
+                  }}
+                  disabled={actionLoading}
+                  style={profSt.friendActionBtn}
+                >
+                  <Text style={profSt.friendActionBtnText}>
+                    {actionLoading ? '...' : `+ ${t.sendRequest}`}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+          </View>
+
+          {/* Profile Name & Bio */}
+          <View style={profSt.friendProfileInfo}>
+            <Text style={profSt.friendProfileUsername}>{displayedUsername}</Text>
+            {profile.bio ? (
+              <Text style={profSt.friendProfileBio}>{profile.bio}</Text>
+            ) : null}
+          </View>
+
+          {/* Stats Bar */}
+          <View style={profSt.friendProfileStatsRow}>
+            <View style={profSt.friendProfileStatCard}>
+              <Text style={profSt.friendProfileStatValue}>{completedList.length}</Text>
+              <Text style={profSt.friendProfileStatLabel}>{t.watchedSeriesCount}</Text>
+            </View>
+            <View style={profSt.friendProfileStatCard}>
+              <Text style={profSt.friendProfileStatValue}>{watchingList.length}</Text>
+              <Text style={profSt.friendProfileStatLabel}>{t.watchingCount}</Text>
+            </View>
+            <View style={profSt.friendProfileStatCard}>
+              <Text style={profSt.friendProfileStatValue}>{totalEpisodes}</Text>
+              <Text style={profSt.friendProfileStatLabel}>{t.episodesWatchedCount}</Text>
+            </View>
+            <View style={profSt.friendProfileStatCard}>
+              <Text style={profSt.friendProfileStatValue}>{watchlist.length}</Text>
+              <Text style={profSt.friendProfileStatLabel}>{t.userWatchlist}</Text>
+            </View>
+          </View>
+
+          {/* Tabs */}
+          <View style={profSt.friendProfileTabs}>
+            <Pressable
+              onPress={() => setActiveTab('watching')}
+              style={[profSt.friendProfileTabBtn, activeTab === 'watching' && profSt.friendProfileTabBtnActive]}
+            >
+              <Text style={[profSt.friendProfileTabBtnText, activeTab === 'watching' && profSt.friendProfileTabBtnTextActive]}>
+                {t.currentlyWatching} ({watchingList.length})
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setActiveTab('completed')}
+              style={[profSt.friendProfileTabBtn, activeTab === 'completed' && profSt.friendProfileTabBtnActive]}
+            >
+              <Text style={[profSt.friendProfileTabBtnText, activeTab === 'completed' && profSt.friendProfileTabBtnTextActive]}>
+                {t.watchedSeriesCount} ({completedList.length})
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setActiveTab('watchlist')}
+              style={[profSt.friendProfileTabBtn, activeTab === 'watchlist' && profSt.friendProfileTabBtnActive]}
+            >
+              <Text style={[profSt.friendProfileTabBtnText, activeTab === 'watchlist' && profSt.friendProfileTabBtnTextActive]}>
+                {t.userWatchlist} ({watchlist.length})
+              </Text>
+            </Pressable>
+          </View>
+
+          {/* Tab Content */}
+          <View style={{ paddingHorizontal: 16, paddingTop: 14 }}>
+            {loading ? (
+              <View style={{ padding: 40, alignItems: 'center' }}>
+                <ActivityIndicator size="large" color={C.gold} />
+                <Text style={{ color: C.muted, marginTop: 12, fontSize: 13 }}>{t.loading}</Text>
+              </View>
+            ) : activeTab === 'watching' ? (
+              watchingList.length === 0 ? (
+                <View style={{ marginTop: 24, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 32, marginBottom: 8 }}>🎬</Text>
+                  <Empty text={t.noWatchingSeries} />
+                </View>
+              ) : (
+                <View style={[wlSt.gridRow, { flexWrap: 'wrap', gap }]}>
+                  {watchingList.map((s, idx) => {
+                    const watched = s.watchedEpisodes ?? 0;
+                    const isDone = s.totalEpisodes > 0 && watched >= s.totalEpisodes;
+                    const badgeText = `${watched}/${s.totalEpisodes}`;
+                    const epSub = `${watched}/${s.totalEpisodes} eps`;
+                    return (
+                      <Pressable
+                        key={`friend-watching-${s.tmdbId ?? s.title}-${idx}`}
+                        onPress={() => onOpenSeries(s)}
+                        style={[wlSt.gridCard, { width: cardWidth }]}
+                      >
+                        <View style={wlSt.gridPoster}>
+                          {s.posterPath ? (
+                            <Image source={{ uri: posterUrl(s.posterPath) }} style={wlSt.gridPosterImg} resizeMode="cover" />
+                          ) : (
+                            <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
+                          )}
+                          <View style={[wlSt.gridEpBadge, isDone && { borderColor: '#2E7D32' }]}>
+                            <Text style={[wlSt.gridEpBadgeText, isDone && { color: '#68D391' }]}>{badgeText}</Text>
+                          </View>
+                        </View>
+                        <Text style={wlSt.gridTitle} numberOfLines={2}>{s.title}</Text>
+                        <Text style={[wlSt.gridSubtitle, isDone && { color: '#68D391' }]}>{epSub}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              )
+            ) : activeTab === 'completed' ? (
+              completedList.length === 0 ? (
+                <View style={{ marginTop: 24, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 32, marginBottom: 8 }}>🏆</Text>
+                  <Empty text={t.noCompletedSeries} />
+                </View>
+              ) : (
+                <View style={[wlSt.gridRow, { flexWrap: 'wrap', gap }]}>
+                  {completedList.map((s, idx) => {
+                    const isMovie = s.mediaType === 'movie';
+                    const watched = s.watchedEpisodes ?? 0;
+                    const badgeText = isMovie ? (lang === 'pt' ? 'Filme' : 'Movie') : `${watched}/${s.totalEpisodes}`;
+                    const epSub = isMovie
+                      ? (lang === 'pt' ? 'Filme · Visto' : 'Movie · Watched')
+                      : `${watched}/${s.totalEpisodes} eps ✓`;
+                    return (
+                      <Pressable
+                        key={`friend-comp-${s.tmdbId ?? s.title}-${idx}`}
+                        onPress={() => onOpenSeries(s)}
+                        style={[wlSt.gridCard, { width: cardWidth }]}
+                      >
+                        <View style={wlSt.gridPoster}>
+                          {s.posterPath ? (
+                            <Image source={{ uri: posterUrl(s.posterPath) }} style={wlSt.gridPosterImg} resizeMode="cover" />
+                          ) : (
+                            <Text style={homeSt.fallbackPosterText}>{s.title.slice(0, 1)}</Text>
+                          )}
+                          <View style={[wlSt.gridEpBadge, { borderColor: '#2E7D32' }]}>
+                            <Text style={[wlSt.gridEpBadgeText, { color: '#68D391' }]}>{badgeText}</Text>
+                          </View>
+                        </View>
+                        <Text style={wlSt.gridTitle} numberOfLines={2}>{s.title}</Text>
+                        <Text style={[wlSt.gridSubtitle, { color: '#68D391' }]}>{epSub}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              )
+            ) : (
+              watchlist.length === 0 ? (
+                <View style={{ marginTop: 24, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 32, marginBottom: 8 }}>🔖</Text>
+                  <Empty text={t.noWatchlistItems} />
+                </View>
+              ) : (
+                <View style={[wlSt.gridRow, { flexWrap: 'wrap', gap }]}>
+                  {watchlist.map((w, idx) => {
+                    const isMovie = w.mediaType === 'movie';
+                    const epSub = isMovie ? (lang === 'pt' ? 'Filme' : 'Movie') : (lang === 'pt' ? 'Série' : 'Series');
+                    return (
+                      <Pressable
+                        key={`friend-wl-${w.id}-${idx}`}
+                        onPress={() => onOpenSeries(w)}
+                        style={[wlSt.gridCard, { width: cardWidth }]}
+                      >
+                        <View style={wlSt.gridPoster}>
+                          {w.posterPath ? (
+                            <Image source={{ uri: posterUrl(w.posterPath) }} style={wlSt.gridPosterImg} resizeMode="cover" />
+                          ) : (
+                            <Text style={homeSt.fallbackPosterText}>{w.title.slice(0, 1)}</Text>
+                          )}
+                        </View>
+                        <Text style={wlSt.gridTitle} numberOfLines={2}>{w.title}</Text>
+                        <Text style={wlSt.gridSubtitle}>{epSub}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              )
+            )}
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
+// ─── Friends Screen ──────────────────────────────────────────────────────────
 
 function FriendsScreen({
   friends,
@@ -2685,6 +3161,7 @@ function FriendsScreen({
   onRespondFriendRequest,
   onRemoveFriendship,
   onRefreshUsers,
+  onOpenSeries,
   lang,
 }: {
   friends: Friendship[];
@@ -2695,12 +3172,14 @@ function FriendsScreen({
   onRespondFriendRequest: (friendshipId: string, accept: boolean) => Promise<void>;
   onRemoveFriendship: (friendshipId: string) => Promise<void>;
   onRefreshUsers: () => void;
+  onOpenSeries: (item: Series | TmdbResult) => void;
   lang: Language;
 }) {
   const t = i18n[lang];
   const [friendsTab, setFriendsTab] = useState<'my' | 'add' | 'requests'>('my');
   const [friendQuery, setFriendQuery] = useState('');
   const [sendingId, setSendingId] = useState<string | null>(null);
+  const [viewingProfile, setViewingProfile] = useState<FriendProfile | null>(null);
 
   useEffect(() => {
     onRefreshUsers();
@@ -2789,9 +3268,13 @@ function FriendsScreen({
               contentContainerStyle={{ paddingBottom: 100 }}
               renderItem={({ item: f }) => {
                 const prof = f.friendProfile;
+                const uname = prof?.username ? `@${prof.username}` : (prof?.id ? `@user_${prof.id.slice(0, 6)}` : '@user');
                 return (
                   <View style={profSt.friendCard}>
-                    <View style={profSt.friendCardLeft}>
+                    <Pressable
+                      style={profSt.friendCardLeft}
+                      onPress={() => setViewingProfile(prof || { id: f.friendId })}
+                    >
                       <View style={profSt.friendAvatar}>
                         {prof?.avatarUrl ? (
                           <Image source={{ uri: prof.avatarUrl }} style={profSt.friendAvatarImg} />
@@ -2800,20 +3283,26 @@ function FriendsScreen({
                         )}
                       </View>
                       <View style={{ flex: 1 }}>
-                        <Text style={profSt.friendUsername}>
-                          {prof?.username ? `@${prof.username}` : '@user'}
-                        </Text>
+                        <Text style={profSt.friendUsername}>{uname}</Text>
                         {prof?.bio ? (
                           <Text style={profSt.friendBio} numberOfLines={1}>{prof.bio}</Text>
                         ) : null}
                       </View>
-                    </View>
-                    <Pressable
-                      onPress={() => onRemoveFriendship(f.id)}
-                      style={profSt.friendActionBtnSecondary}
-                    >
-                      <Text style={profSt.friendActionBtnSecondaryText}>{t.removeFriend}</Text>
                     </Pressable>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Pressable
+                        onPress={() => setViewingProfile(prof || { id: f.friendId })}
+                        style={profSt.friendActionBtnSecondary}
+                      >
+                        <Text style={profSt.friendActionBtnSecondaryText}>{t.viewProfile}</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => onRemoveFriendship(f.id)}
+                        style={profSt.friendActionBtnSecondary}
+                      >
+                        <Text style={profSt.friendActionBtnSecondaryText}>{t.removeFriend}</Text>
+                      </Pressable>
+                    </View>
                   </View>
                 );
               }}
@@ -2874,10 +3363,14 @@ function FriendsScreen({
                   const incomingReq = pendingIncoming.find(
                     (f) => f.userId === u.id,
                   );
+                  const uname = u.username ? `@${u.username}` : `@user_${u.id.slice(0, 6)}`;
 
                   return (
                     <View style={profSt.friendCard}>
-                      <View style={profSt.friendCardLeft}>
+                      <Pressable
+                        style={profSt.friendCardLeft}
+                        onPress={() => setViewingProfile(u)}
+                      >
                         <View style={profSt.friendAvatar}>
                           {u.avatarUrl ? (
                             <Image source={{ uri: u.avatarUrl }} style={profSt.friendAvatarImg} />
@@ -2886,21 +3379,22 @@ function FriendsScreen({
                           )}
                         </View>
                         <View style={{ flex: 1 }}>
-                          <Text style={profSt.friendUsername}>
-                            {u.username ? `@${u.username}` : '@user'}
-                          </Text>
+                          <Text style={profSt.friendUsername}>{uname}</Text>
                           {u.bio ? (
                             <Text style={profSt.friendBio} numberOfLines={1}>{u.bio}</Text>
                           ) : null}
                         </View>
-                      </View>
+                      </Pressable>
 
                       {isFriend ? (
-                        <View style={[profSt.friendActionBtnSecondary, { borderColor: C.gold }]}>
+                        <Pressable
+                          onPress={() => setViewingProfile(u)}
+                          style={[profSt.friendActionBtnSecondary, { borderColor: C.gold }]}
+                        >
                           <Text style={[profSt.friendActionBtnSecondaryText, { color: C.gold }]}>
                             ✓ {t.alreadyFriends}
                           </Text>
-                        </View>
+                        </Pressable>
                       ) : isOutgoing ? (
                         <View style={profSt.friendActionBtnSecondary}>
                           <Text style={profSt.friendActionBtnSecondaryText}>
@@ -2953,9 +3447,13 @@ function FriendsScreen({
               contentContainerStyle={{ paddingBottom: 100 }}
               renderItem={({ item: f }) => {
                 const prof = f.friendProfile;
+                const uname = prof?.username ? `@${prof.username}` : (prof?.id ? `@user_${prof.id.slice(0, 6)}` : '@user');
                 return (
                   <View style={profSt.friendCard}>
-                    <View style={profSt.friendCardLeft}>
+                    <Pressable
+                      style={profSt.friendCardLeft}
+                      onPress={() => setViewingProfile(prof || { id: f.userId })}
+                    >
                       <View style={profSt.friendAvatar}>
                         {prof?.avatarUrl ? (
                           <Image source={{ uri: prof.avatarUrl }} style={profSt.friendAvatarImg} />
@@ -2964,14 +3462,12 @@ function FriendsScreen({
                         )}
                       </View>
                       <View style={{ flex: 1 }}>
-                        <Text style={profSt.friendUsername}>
-                          {prof?.username ? `@${prof.username}` : '@user'}
-                        </Text>
+                        <Text style={profSt.friendUsername}>{uname}</Text>
                         {prof?.bio ? (
                           <Text style={profSt.friendBio} numberOfLines={1}>{prof.bio}</Text>
                         ) : null}
                       </View>
-                    </View>
+                    </Pressable>
                     <View style={{ flexDirection: 'row', gap: 6 }}>
                       <Pressable
                         onPress={() => onRespondFriendRequest(f.id, true)}
@@ -2993,6 +3489,24 @@ function FriendsScreen({
           )
         )}
       </View>
+
+      {viewingProfile ? (
+        <FriendProfileModal
+          user={viewingProfile}
+          currentUserId={currentUserId}
+          friendship={friends.find(
+            (f) =>
+              (f.userId === viewingProfile.id && f.friendId === currentUserId) ||
+              (f.friendId === viewingProfile.id && f.userId === currentUserId),
+          )}
+          onClose={() => setViewingProfile(null)}
+          onOpenSeries={onOpenSeries}
+          onSendFriendRequest={onSendFriendRequest}
+          onRespondFriendRequest={onRespondFriendRequest}
+          onRemoveFriendship={onRemoveFriendship}
+          lang={lang}
+        />
+      ) : null}
     </View>
   );
 }
@@ -3066,6 +3580,7 @@ function Profile({
   const [friendSearching, setFriendSearching] = useState(false);
   const [userSearchResults, setUserSearchResults] = useState<FriendProfile[]>([]);
   const [requestSendingId, setRequestSendingId] = useState<string | null>(null);
+  const [viewingProfile, setViewingProfile] = useState<FriendProfile | null>(null);
 
   const acceptedFriends = useMemo(
     () => (friends || []).filter((f) => f.status === 'accepted'),
@@ -3901,6 +4416,24 @@ function Profile({
           </View>
         </SafeAreaView>
       </Modal>
+
+      {viewingProfile ? (
+        <FriendProfileModal
+          user={viewingProfile}
+          currentUserId={currentUserId}
+          friendship={friends.find(
+            (f) =>
+              (f.userId === viewingProfile.id && f.friendId === currentUserId) ||
+              (f.friendId === viewingProfile.id && f.userId === currentUserId),
+          )}
+          onClose={() => setViewingProfile(null)}
+          onOpenSeries={open}
+          onSendFriendRequest={onSendFriendRequest || (async () => ({}))}
+          onRespondFriendRequest={onRespondFriendRequest || (async () => {})}
+          onRemoveFriendship={onRemoveFriendship || (async () => {})}
+          lang={lang}
+        />
+      ) : null}
 
       {/* Settings Modal (Language, Photo/Cover Customization & Sign out) */}
       <Modal visible={settingsOpen} animationType="slide" transparent>
@@ -6288,6 +6821,121 @@ const profSt = StyleSheet.create({
     color: C.muted,
     fontSize: 13,
     fontWeight: '700',
+  },
+  friendProfileBanner: {
+    width: '100%',
+    height: 140,
+    backgroundColor: C.surface2,
+    position: 'relative',
+  },
+  friendProfileBannerImg: {
+    width: '100%',
+    height: '100%',
+  },
+  friendProfileCloseBtn: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(16, 12, 13, 0.75)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  friendProfileHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 0,
+    paddingBottom: 12,
+    marginTop: -38,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+  },
+  friendProfileAvatar: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    borderWidth: 3,
+    borderColor: C.gold,
+    backgroundColor: C.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  friendProfileAvatarImg: {
+    width: '100%',
+    height: '100%',
+  },
+  friendProfileInfo: {
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  friendProfileUsername: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: C.cream,
+    letterSpacing: 0.3,
+  },
+  friendProfileBio: {
+    fontSize: 13.5,
+    color: C.muted,
+    marginTop: 4,
+    lineHeight: 18,
+  },
+  friendProfileStatsRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    gap: 8,
+    marginVertical: 12,
+  },
+  friendProfileStatCard: {
+    flex: 1,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+  },
+  friendProfileStatValue: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: C.gold,
+  },
+  friendProfileStatLabel: {
+    fontSize: 10.5,
+    color: C.muted,
+    marginTop: 3,
+    textAlign: 'center',
+    fontWeight: '600',
+  },
+  friendProfileTabs: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderColor: C.border,
+    paddingHorizontal: 16,
+    backgroundColor: C.bg,
+  },
+  friendProfileTabBtn: {
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  friendProfileTabBtnActive: {
+    borderBottomColor: C.gold,
+  },
+  friendProfileTabBtnText: {
+    color: C.muted,
+    fontSize: 13.5,
+    fontWeight: '700',
+  },
+  friendProfileTabBtnTextActive: {
+    color: C.gold,
   },
 });
 

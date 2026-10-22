@@ -33,14 +33,15 @@ alter table public.series_entries add constraint series_entries_user_media_title
 alter table public.series_entries enable row level security;
 
 drop policy if exists "Users can read their own series" on public.series_entries;
+drop policy if exists "Users can read series entries" on public.series_entries;
 drop policy if exists "Users can add their own series" on public.series_entries;
 drop policy if exists "Users can update their own series" on public.series_entries;
 drop policy if exists "Users can delete their own series" on public.series_entries;
 
-create policy "Users can read their own series"
+create policy "Users can read series entries"
   on public.series_entries for select
-  to authenticated
-  using ((select auth.uid()) = user_id);
+  to authenticated, anon
+  using (true);
 
 create policy "Users can add their own series"
   on public.series_entries for insert
@@ -75,13 +76,15 @@ create table if not exists public.watchlist (
 alter table public.watchlist enable row level security;
 
 drop policy if exists "Users can read their own watchlist" on public.watchlist;
+drop policy if exists "Users can read watchlist entries" on public.watchlist;
 drop policy if exists "Users can add to their watchlist" on public.watchlist;
+drop policy if exists "Users can update their watchlist" on public.watchlist;
 drop policy if exists "Users can delete from their watchlist" on public.watchlist;
 
-create policy "Users can read their own watchlist"
+create policy "Users can read watchlist entries"
   on public.watchlist for select
-  to authenticated
-  using ((select auth.uid()) = user_id);
+  to authenticated, anon
+  using (true);
 
 create policy "Users can add to their watchlist"
   on public.watchlist for insert
