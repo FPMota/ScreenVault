@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Animated,
   AppState,
+  BackHandler,
   Dimensions,
   Easing,
   FlatList,
@@ -440,6 +441,121 @@ export default function App() {
   const [allUsers, setAllUsers] = useState<FriendProfile[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
 
+  const tabRef = useRef<Tab>(tab);
+  tabRef.current = tab;
+  const selectedRef = useRef<Series | TmdbResult | null>(selected);
+  selectedRef.current = selected;
+  const settingsOpenRef = useRef<boolean>(settingsOpen);
+  settingsOpenRef.current = settingsOpen;
+  const searchModalOpenRef = useRef<boolean>(searchModalOpen);
+  searchModalOpenRef.current = searchModalOpen;
+
+  const openDetail = (item: Series | TmdbResult) => {
+    setSelected(item);
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      try {
+        window.history.pushState({ screen: 'detail' }, '');
+      } catch { /* ignore */ }
+    }
+  };
+
+  const closeDetail = () => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.history.state?.screen === 'detail') {
+      window.history.back();
+    } else {
+      setSelected(null);
+    }
+  };
+
+  const openSearch = () => {
+    setSearchModalOpen(true);
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      try {
+        window.history.pushState({ screen: 'search' }, '');
+      } catch { /* ignore */ }
+    }
+  };
+
+  const closeSearch = () => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.history.state?.screen === 'search') {
+      window.history.back();
+    } else {
+      setSearchModalOpen(false);
+    }
+  };
+
+  const openSettings = () => {
+    setSettingsOpen(true);
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      try {
+        window.history.pushState({ screen: 'settings' }, '');
+      } catch { /* ignore */ }
+    }
+  };
+
+  const closeSettings = () => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.history.state?.screen === 'settings') {
+      window.history.back();
+    } else {
+      setSettingsOpen(false);
+    }
+  };
+
+  // Back Button & Swipe-Back integration for Web, PWA, and Mobile Native
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      try {
+        if (!window.history.state) {
+          window.history.replaceState({ screen: 'root', tab: 'home' }, '');
+        }
+      } catch { /* ignore */ }
+
+      const handlePopState = () => {
+        if (selectedRef.current) {
+          setSelected(null);
+          return;
+        }
+        if (searchModalOpenRef.current) {
+          setSearchModalOpen(false);
+          return;
+        }
+        if (settingsOpenRef.current) {
+          setSettingsOpen(false);
+          return;
+        }
+        if (tabRef.current !== 'home') {
+          goToTab('home');
+          return;
+        }
+      };
+
+      window.addEventListener('popstate', handlePopState);
+      return () => window.removeEventListener('popstate', handlePopState);
+    } else {
+      const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+        if (selectedRef.current) {
+          setSelected(null);
+          return true;
+        }
+        if (searchModalOpenRef.current) {
+          setSearchModalOpen(false);
+          return true;
+        }
+        if (settingsOpenRef.current) {
+          setSettingsOpen(false);
+          return true;
+        }
+        if (tabRef.current !== 'home') {
+          goToTab('home');
+          return true;
+        }
+        return false;
+      });
+      return () => sub.remove();
+    }
+  }, []);
+
+
   const fetchAllUsers = async (targetUid?: string) => {
     const uid = targetUid || session?.user?.id;
     if (!uid) return;
@@ -750,6 +866,12 @@ export default function App() {
     slideAnim.setValue(direction * 32);
     tabOpacity.setValue(0.72);
     setTab(next);
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      if (next !== 'home' && tabRef.current === 'home') {
+        try { window.history.pushState({ screen: 'tab', tab: next }, ''); } catch { /* ignore */ }
+      }
+    }
 
     Animated.parallel([
       Animated.timing(slideAnim, {
@@ -1706,8 +1828,8 @@ export default function App() {
           library={library}
           progress={progress}
           lastWatched={lastWatched}
-          open={setSelected}
-          onOpenSearch={() => setSearchModalOpen(true)}
+          open={openDetail}
+          onOpenSearch={openSearch}
           lang={lang}
         />
       )}
@@ -1716,7 +1838,7 @@ export default function App() {
           library={library}
           watchlist={watchlist}
           progress={progress}
-          open={setSelected}
+          open={openDetail}
           onAddToLibrary={addFromCatalog}
           lang={lang}
         />
@@ -1726,7 +1848,7 @@ export default function App() {
           items={watchlist}
           library={library}
           progress={progress}
-          open={setSelected}
+          open={openDetail}
           onRemove={removeFromWatchlist}
           onAddToWatchlist={addToWatchlist}
           lang={lang}
@@ -1742,7 +1864,7 @@ export default function App() {
           onRespondFriendRequest={respondFriendRequest}
           onRemoveFriendship={removeFriendship}
           onRefreshUsers={() => fetchAllUsers(session?.user?.id)}
-          onOpenSeries={setSelected}
+          onOpenSeries={openDetail}
           lang={lang}
         />
       )}
@@ -1752,7 +1874,7 @@ export default function App() {
           watchlist={watchlist}
           progress={progress}
           lastWatched={lastWatched}
-          open={setSelected}
+          open={openDetail}
           avatar={avatar}
           banner={banner}
           username={username}
@@ -1763,8 +1885,8 @@ export default function App() {
           onRemoveBanner={removeBanner}
           onSaveProfile={handleSaveProfile}
           settingsOpen={settingsOpen}
-          onOpenSettings={() => setSettingsOpen(true)}
-          onCloseSettings={() => setSettingsOpen(false)}
+          onOpenSettings={openSettings}
+          onCloseSettings={closeSettings}
           onSignOut={signOut}
           lang={lang}
           onChangeLang={changeLanguage}
@@ -1799,7 +1921,7 @@ export default function App() {
             watchlist={watchlist}
             personal={personal[canonicalTitle] ?? personal[selected.title] ?? {}}
             progress={'collection' in selected ? progress(selected) : (libMatch ? progress(libMatch) : 0)}
-            onClose={() => setSelected(null)}
+            onClose={closeDetail}
             onAddToLibrary={addFromCatalog}
             onRemoveFromLibrary={() => {
               const tid = 'tmdbId' in selected ? selected.tmdbId : ('id' in selected ? selected.id : undefined);
@@ -1823,14 +1945,14 @@ export default function App() {
           </View>
           <SearchCatalogModal
             visible={searchModalOpen}
-            close={() => setSearchModalOpen(false)}
+            close={closeSearch}
             onAddToLibrary={addFromCatalog}
             onAddToWatchlist={addToWatchlist}
             library={library}
             watchlist={watchlist}
             openDetail={(item) => {
               setSearchModalOpen(false);
-              setSelected(item);
+              openDetail(item);
             }}
             lang={lang}
           />
