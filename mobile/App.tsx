@@ -3784,7 +3784,14 @@ function Profile({
           <View style={profSt.cleanBannerOverlay} pointerEvents="none" />
 
           {/* Header Controls Over Banner: Clean top-right gear button */}
-          <View style={[profSt.headerRowOverBanner, { justifyContent: 'flex-end', position: 'absolute', top: 0, right: 0, left: 0, zIndex: 30 }]}>
+          <View style={[profSt.headerRowOverBanner, {
+            justifyContent: 'flex-end',
+            position: 'absolute',
+            top: (Platform.OS === 'web' ? 'max(18px, calc(env(safe-area-inset-top, 0px) + 12px))' : Platform.OS === 'ios' ? 50 : 18) as any,
+            right: 0,
+            left: 0,
+            zIndex: 30,
+          }]}>
             <Pressable onPress={onOpenSettings} style={profSt.gearButton} hitSlop={10}>
               <Text style={profSt.gearIcon}>⚙</Text>
             </Pressable>
@@ -6573,7 +6580,7 @@ const profSt = StyleSheet.create({
   },
   cleanProfileBanner: {
     width: '100%',
-    height: 150,
+    height: (Platform.OS === 'web' ? 'calc(150px + env(safe-area-inset-top, 0px))' : 170) as any,
     backgroundColor: '#1C1316',
     position: 'relative',
   },
