@@ -384,16 +384,16 @@ export const i18n = {
 
 // ─── Colour palette (Vintage Cinema Bordeaux) ─────────────────────────────────
 const C = {
-  bg: '#100C0D',
-  surface: '#1E1518',
-  surface2: '#2A1D21',
-  bordeaux: '#8B1A2E',
-  bordeauxLight: '#B22040',
-  gold: '#C4A35A',
-  cream: '#F5ECD7',
-  muted: '#A89080',
-  border: '#3D2830',
-  error: '#FF8080',
+  bg: '#0C0A0D',           // Deep Noir Velvet Obsidian (luxurious, modern, clean)
+  surface: '#161318',      // Sleek Charcoal Velvet Surface
+  surface2: '#201A22',     // Soft Refined Contrast Surface
+  bordeaux: '#9E1B32',     // Regal Burgundy Wine
+  bordeauxLight: '#C72545',// Vibrant Ruby Accent
+  gold: '#D4AF37',         // Clean Luxury Champagne Gold
+  cream: '#F8F6F0',        // Pure Crisp Soft Off-White
+  muted: '#9E9499',        // Refined Warm Silver-Taupe
+  border: '#282027',       // Subtle Luxury Hairline Border
+  error: '#FF6B6B',
 };
 
 // ─── Cloud Sync Helpers ───────────────────────────────────────────────────────
@@ -1578,12 +1578,20 @@ export default function App() {
 
     // Persist directly to profiles table so all devices sync the photo
     try {
-      await supabase.from('profiles').upsert({
-        id: session.user.id,
+      const { error: updErr } = await supabase.from('profiles').update({
         avatar_url: uri,
         updated_at: new Date().toISOString(),
-      });
-    } catch { /* ignore */ }
+      }).eq('id', session.user.id);
+      if (updErr) {
+        await supabase.from('profiles').upsert({
+          id: session.user.id,
+          avatar_url: uri,
+          updated_at: new Date().toISOString(),
+        });
+      }
+    } catch (e) {
+      console.warn('Error persisting avatar to profiles:', e);
+    }
 
     // Upload to avatars storage bucket if available
     try {
@@ -1610,12 +1618,20 @@ export default function App() {
     if (!supabase || !session) return;
 
     try {
-      await supabase.from('profiles').upsert({
-        id: session.user.id,
+      const { error: updErr } = await supabase.from('profiles').update({
         banner_url: uri,
         updated_at: new Date().toISOString(),
-      });
-    } catch { /* ignore */ }
+      }).eq('id', session.user.id);
+      if (updErr) {
+        await supabase.from('profiles').upsert({
+          id: session.user.id,
+          banner_url: uri,
+          updated_at: new Date().toISOString(),
+        });
+      }
+    } catch (e) {
+      console.warn('Error persisting banner to profiles:', e);
+    }
   };
 
   const removeBanner = async () => {
@@ -3676,8 +3692,11 @@ function Profile({
 }) {
   const { width } = useWindowDimensions();
   const safeWidth = width && width > 0 ? width : SCREEN_W;
-  const numCols = safeWidth > 1024 ? 6 : safeWidth > 768 ? 4 : 3;
-  const colWidth = Math.floor((safeWidth - 32 - (numCols - 1) * 8) / numCols);
+  const padding = 24; // 12 on each side
+  const gap = 8;
+  // Guarantees AT LEAST 4 posters per row on any screen (scales to 5, 6, 8 on larger displays)
+  const numCols = Math.max(4, Math.floor((safeWidth - padding + gap) / (76 + gap)));
+  const colWidth = Math.floor((safeWidth - padding - gap * (numCols - 1)) / numCols);
 
   const t = i18n[lang];
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -3686,6 +3705,7 @@ function Profile({
 
   type ProfileTab = 'all' | 'watching' | 'watchlist' | 'watched';
   const [activeTab, setActiveTab] = useState<ProfileTab>('all');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
   useEffect(() => {
     setDraftUsername(username);
@@ -3729,18 +3749,17 @@ function Profile({
         overScrollMode="always"
         bounces
       >
-        {/* Top Banner with Settings Gear */}
+        {/* Top Banner with Settings Gear (Word "Perfil" removed as requested) */}
         <View style={profSt.cleanProfileBanner}>
           {banner ? (
             <Image source={{ uri: banner }} style={profSt.cleanProfileBannerImg} resizeMode="cover" />
           ) : (
-            <View style={[profSt.cleanProfileBannerImg, { backgroundColor: '#1C1316' }]} />
+            <View style={[profSt.cleanProfileBannerImg, { backgroundColor: '#161318' }]} />
           )}
           <View style={profSt.cleanBannerOverlay} />
 
-          {/* Header Controls Over Banner */}
-          <View style={profSt.headerRowOverBanner}>
-            <Text style={profSt.headerTitle}>{t.profile}</Text>
+          {/* Header Controls Over Banner: Clean top-right gear button */}
+          <View style={[profSt.headerRowOverBanner, { justifyContent: 'flex-end' }]}>
             <Pressable onPress={onOpenSettings} style={profSt.gearButton} hitSlop={10}>
               <Text style={profSt.gearIcon}>⚙</Text>
             </Pressable>
@@ -3833,16 +3852,54 @@ function Profile({
           </Pressable>
         </View>
 
-        {/* Clean Posters Grid */}
-        <View style={{ paddingHorizontal: 16 }}>
+        {/* View Mode Toggle Bar (Grelha de 4+ posters vs Linha) */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, marginTop: 4, marginBottom: 12 }}>
+          <Text style={{ color: C.muted, fontSize: 12.5, fontWeight: '700' }}>
+            {activeTab === 'all'
+              ? `${library.length} ${lang === 'pt' ? 'títulos' : 'titles'}`
+              : activeTab === 'watching'
+              ? `${continueWatching.length} ${lang === 'pt' ? 'a ver' : 'watching'}`
+              : activeTab === 'watchlist'
+              ? `${watchlist.length} ${lang === 'pt' ? 'por ver' : 'in watchlist'}`
+              : `${completedSeries.length} ${lang === 'pt' ? 'vistos' : 'watched'}`}
+          </Text>
+
+          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface, borderRadius: 10, padding: 2, borderWidth: 1, borderColor: C.border }}>
+            <Pressable
+              onPress={() => setViewMode('grid')}
+              style={[
+                { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
+                viewMode === 'grid' && { backgroundColor: C.surface2, borderWidth: 1, borderColor: C.gold },
+              ]}
+            >
+              <Text style={{ color: viewMode === 'grid' ? C.gold : C.muted, fontSize: 12, fontWeight: '700' }}>
+                ▦ {lang === 'pt' ? 'Grelha' : 'Grid'}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setViewMode('list')}
+              style={[
+                { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
+                viewMode === 'list' && { backgroundColor: C.surface2, borderWidth: 1, borderColor: C.gold },
+              ]}
+            >
+              <Text style={{ color: viewMode === 'list' ? C.gold : C.muted, fontSize: 12, fontWeight: '700' }}>
+                ☰ {lang === 'pt' ? 'Linha' : 'List'}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+
+        {/* Content: Grid (at least 4 posters per row) OR List (full horizontal cards) */}
+        <View style={{ paddingHorizontal: 12 }}>
           {activeTab === 'all' ? (
             library.length === 0 ? (
               <View style={{ marginTop: 24, alignItems: 'center' }}>
                 <Text style={{ fontSize: 32, marginBottom: 8 }}>📺</Text>
                 <Empty text={t.noCompletedSeries} />
               </View>
-            ) : (
-              <View style={[wlSt.gridRow, { flexWrap: 'wrap', gap: 8 }]}>
+            ) : viewMode === 'grid' ? (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                 {library.map((s, idx) => {
                   const watched = progress(s);
                   const isMovie = s.mediaType === 'movie';
@@ -3857,7 +3914,7 @@ function Profile({
                     <Pressable
                       key={`prof-grid-all-${s.mediaType}-${s.tmdbId ?? s.title}-${idx}`}
                       onPress={() => open(s)}
-                      style={[wlSt.gridCard, { width: colWidth }]}
+                      style={{ width: colWidth, alignItems: 'center', marginBottom: 12 }}
                     >
                       <View style={profSt.cleanGridPoster}>
                         {s.posterPath ? (
@@ -3875,6 +3932,20 @@ function Profile({
                   );
                 })}
               </View>
+            ) : (
+              <View style={styles.list}>
+                {library.map((s, idx) => (
+                  <SeriesRow
+                    key={`prof-list-all-${s.mediaType}-${s.tmdbId ?? s.title}-${idx}`}
+                    series={s}
+                    watched={progress(s)}
+                    press={() => open(s)}
+                    collectionLabel={s.mediaType === 'movie' ? (lang === 'pt' ? 'Filme' : 'Movie') : (lang === 'pt' ? 'Série' : 'Series')}
+                    t={t}
+                    lang={lang}
+                  />
+                ))}
+              </View>
             )
           ) : activeTab === 'watching' ? (
             continueWatching.length === 0 ? (
@@ -3882,8 +3953,8 @@ function Profile({
                 <Text style={{ fontSize: 32, marginBottom: 8 }}>🎬</Text>
                 <Empty text={t.noWatchingSeries} />
               </View>
-            ) : (
-              <View style={[wlSt.gridRow, { flexWrap: 'wrap', gap: 8 }]}>
+            ) : viewMode === 'grid' ? (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                 {continueWatching.map((s, idx) => {
                   const watched = progress(s);
                   const isMovie = s.mediaType === 'movie';
@@ -3897,7 +3968,7 @@ function Profile({
                     <Pressable
                       key={`prof-grid-watching-${s.mediaType}-${s.tmdbId ?? s.title}-${idx}`}
                       onPress={() => open(s)}
-                      style={[wlSt.gridCard, { width: colWidth }]}
+                      style={{ width: colWidth, alignItems: 'center', marginBottom: 12 }}
                     >
                       <View style={profSt.cleanGridPoster}>
                         {s.posterPath ? (
@@ -3915,6 +3986,20 @@ function Profile({
                   );
                 })}
               </View>
+            ) : (
+              <View style={styles.list}>
+                {continueWatching.map((s, idx) => (
+                  <SeriesRow
+                    key={`prof-list-watching-${s.mediaType}-${s.tmdbId ?? s.title}-${idx}`}
+                    series={s}
+                    watched={progress(s)}
+                    press={() => open(s)}
+                    collectionLabel={s.mediaType === 'movie' ? (lang === 'pt' ? 'Filme' : 'Movie') : (lang === 'pt' ? 'A Ver' : 'Watching')}
+                    t={t}
+                    lang={lang}
+                  />
+                ))}
+              </View>
             )
           ) : activeTab === 'watchlist' ? (
             watchlist.length === 0 ? (
@@ -3922,8 +4007,8 @@ function Profile({
                 <Text style={{ fontSize: 32, marginBottom: 8 }}>🔖</Text>
                 <Empty text={t.noWatchlistItems} />
               </View>
-            ) : (
-              <View style={[wlSt.gridRow, { flexWrap: 'wrap', gap: 8 }]}>
+            ) : viewMode === 'grid' ? (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                 {watchlist.map((w, idx) => {
                   const isMovie = w.mediaType === 'movie';
                   const epSub = isMovie ? (lang === 'pt' ? 'Filme' : 'Movie') : (lang === 'pt' ? 'Série' : 'Series');
@@ -3931,7 +4016,7 @@ function Profile({
                     <Pressable
                       key={`prof-grid-wl-${w.id}-${idx}`}
                       onPress={() => open(w)}
-                      style={[wlSt.gridCard, { width: colWidth }]}
+                      style={{ width: colWidth, alignItems: 'center', marginBottom: 12 }}
                     >
                       <View style={profSt.cleanGridPoster}>
                         {w.posterPath ? (
@@ -3946,6 +4031,28 @@ function Profile({
                   );
                 })}
               </View>
+            ) : (
+              <View style={styles.list}>
+                {watchlist.map((w, idx) => {
+                  const isMovie = w.mediaType === 'movie';
+                  return (
+                    <Pressable
+                      key={`prof-list-wl-${w.id}-${idx}`}
+                      style={styles.seriesRow}
+                      onPress={() => open(w)}
+                    >
+                      <PosterThumb posterPath={w.posterPath} title={w.title} size="sm" />
+                      <View style={styles.rowBody}>
+                        <Text style={styles.rowTitle}>{w.title}</Text>
+                        <Text style={styles.rowMeta}>{isMovie ? (lang === 'pt' ? 'Filme' : 'Movie') : (lang === 'pt' ? 'Série' : 'Series')}</Text>
+                        {w.overview ? (
+                          <Text style={[styles.rowMeta, { color: C.muted, marginTop: 4 }]} numberOfLines={2}>{w.overview}</Text>
+                        ) : null}
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
             )
           ) : (
             completedSeries.length === 0 ? (
@@ -3953,8 +4060,8 @@ function Profile({
                 <Text style={{ fontSize: 32, marginBottom: 8 }}>🏆</Text>
                 <Empty text={t.noCompletedSeries} />
               </View>
-            ) : (
-              <View style={[wlSt.gridRow, { flexWrap: 'wrap', gap: 8 }]}>
+            ) : viewMode === 'grid' ? (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                 {completedSeries.map((s, idx) => {
                   const isMovie = s.mediaType === 'movie';
                   const epSub = isMovie
@@ -3965,7 +4072,7 @@ function Profile({
                     <Pressable
                       key={`prof-grid-comp-${s.mediaType}-${s.tmdbId ?? s.title}-${idx}`}
                       onPress={() => open(s)}
-                      style={[wlSt.gridCard, { width: colWidth }]}
+                      style={{ width: colWidth, alignItems: 'center', marginBottom: 12 }}
                     >
                       <View style={profSt.cleanGridPoster}>
                         {s.posterPath ? (
@@ -3982,6 +4089,20 @@ function Profile({
                     </Pressable>
                   );
                 })}
+              </View>
+            ) : (
+              <View style={styles.list}>
+                {completedSeries.map((s, idx) => (
+                  <SeriesRow
+                    key={`prof-list-comp-${s.mediaType}-${s.tmdbId ?? s.title}-${idx}`}
+                    series={s}
+                    watched={s.totalEpisodes}
+                    press={() => open(s)}
+                    collectionLabel={s.mediaType === 'movie' ? (lang === 'pt' ? 'Filme · Concluído' : 'Movie · Completed') : (lang === 'pt' ? 'Série · Concluída' : 'Series · Completed')}
+                    t={t}
+                    lang={lang}
+                  />
+                ))}
               </View>
             )
           )}
@@ -5897,7 +6018,7 @@ const wlSt = StyleSheet.create({
   },
   viewModeIcon: { color: C.gold, fontSize: 14, fontWeight: '700' },
   gridContainer: { paddingHorizontal: 12, paddingBottom: 100, paddingTop: 10 },
-  gridRow: { justifyContent: 'flex-start', gap: 8, marginBottom: 14 },
+  gridRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-start', gap: 8, marginBottom: 14 },
   gridCard: { width: Math.floor((SCREEN_W - 24 - 24) / 4), alignItems: 'center' },
   gridPoster: {
     width: '100%', aspectRatio: 2 / 3, borderRadius: 8,
