@@ -61,6 +61,24 @@ type PersonalData = {
   watchedEpList?: string[];
 };
 
+export type FriendshipStatus = 'pending' | 'accepted' | 'rejected' | 'blocked';
+
+export type FriendProfile = {
+  id: string;
+  username?: string;
+  bio?: string;
+  avatarUrl?: string;
+};
+
+export type Friendship = {
+  id: string;
+  userId: string;
+  friendId: string;
+  status: FriendshipStatus;
+  createdAt?: string;
+  friendProfile?: FriendProfile;
+};
+
 type Tab = 'home' | 'library' | 'watchlist' | 'profile';
 
 const TABS: Tab[] = ['home', 'library', 'watchlist', 'profile'];
@@ -73,6 +91,9 @@ const BANNER_KEY = '@screenvault/banner-v1';
 const LANG_KEY = '@screenvault/lang-v1';
 const USERNAME_KEY = '@screenvault/username-v1';
 const BIO_KEY = '@screenvault/bio-v1';
+const FRIENDS_KEY = '@screenvault/friends-v1';
+const LIBRARY_VIEW_KEY = '@screenvault/library_view_mode-v1';
+const WATCHLIST_VIEW_KEY = '@screenvault/watchlist_view_mode-v1';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
@@ -172,6 +193,21 @@ export const i18n = {
     coverImage: 'Cover Image',
     addPhoto: 'Add photo',
     noCover: 'No cover',
+    friends: 'Friends',
+    myFriends: 'My Friends',
+    addFriend: 'Add Friend',
+    pendingRequests: 'Requests',
+    searchUsers: 'Search by username...',
+    noFriendsYet: 'No friends added yet. Connect with other cinema lovers!',
+    noRequests: 'No pending requests.',
+    sendRequest: 'Add Friend',
+    requestSent: 'Request Sent',
+    accept: 'Accept',
+    decline: 'Decline',
+    removeFriend: 'Remove',
+    alreadyFriends: 'Friends',
+    friendsCount: 'Friends',
+    friendSearchHint: 'Search for users by username to connect and see what they are watching.',
   },
   pt: {
     home: 'Início',
@@ -266,6 +302,21 @@ export const i18n = {
     coverImage: 'Imagem de Capa',
     addPhoto: 'Adicionar foto',
     noCover: 'Sem capa',
+    friends: 'Amigos',
+    myFriends: 'Os Meus Amigos',
+    addFriend: 'Adicionar Amigo',
+    pendingRequests: 'Pedidos',
+    searchUsers: 'Pesquisar por username...',
+    noFriendsYet: 'Ainda não tens amigos adicionados. Conecta-te com outros amantes de cinema!',
+    noRequests: 'Sem pedidos pendentes.',
+    sendRequest: 'Adicionar Amigo',
+    requestSent: 'Pedido Enviado',
+    accept: 'Aceitar',
+    decline: 'Recusar',
+    removeFriend: 'Remover',
+    alreadyFriends: 'Amigos',
+    friendsCount: 'Amigos',
+    friendSearchHint: 'Pesquisa utilizadores pelo nome de utilizador para veres o que estão a ver.',
   },
 };
 
@@ -323,6 +374,111 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchModalOpen, setSearchModalOpen] = useState(false);
+  const [friends, setFriends] = useState<Friendship[]>([]);
+
+  const fetchFriendships = async (targetUid?: string) => {
+    const uid = targetUid || session?.user?.id;
+    if (!supabase || !uid) return;
+    try {
+      const { data, error } = await supabase
+        .from('friendships')
+        .select('*')
+        .or(`user_id.eq.${uid},friend_id.eq.${uid}`);
+
+      if (error || !data) return;
+
+      const otherUids = [...new Set(data.map((r: any) => (r.user_id === uid ? r.friend_id : r.user_id)))];
+      const profilesMap: Record<string, FriendProfile> = {};
+
+      if (otherUids.length > 0) {
+        const { data: profs } = await supabase
+          .from('profiles')
+          .select('id, username, bio, avatar_url')
+          .in('id', otherUids);
+
+        if (profs) {
+          profs.forEach((p: any) => {
+            profilesMap[p.id] = {
+              id: p.id,
+              username: p.username ?? undefined,
+              bio: p.bio ?? undefined,
+              avatarUrl: p.avatar_url ?? undefined,
+            };
+          });
+        }
+      }
+
+      const list: Friendship[] = data.map((r: any) => {
+        const otherId = r.user_id === uid ? r.friend_id : r.user_id;
+        return {
+          id: r.id,
+          userId: r.user_id,
+          friendId: r.friend_id,
+          status: r.status as FriendshipStatus,
+          createdAt: r.created_at,
+          friendProfile: profilesMap[otherId] || { id: otherId },
+        };
+      });
+
+      setFriends(list);
+      AsyncStorage.setItem(FRIENDS_KEY, JSON.stringify(list)).catch(() => undefined);
+    } catch {
+      // Graceful offline fallback
+    }
+  };
+
+  const sendFriendRequest = async (targetUserId: string): Promise<{ error?: string }> => {
+    if (!supabase || !session) return { error: 'Not authenticated' };
+    const uid = session.user.id;
+    const { error } = await supabase.from('friendships').insert({
+      user_id: uid,
+      friend_id: targetUserId,
+      status: 'pending',
+    });
+    if (!error) {
+      fetchFriendships(uid);
+    }
+    return { error: error?.message };
+  };
+
+  const respondFriendRequest = async (friendshipId: string, accept: boolean) => {
+    if (!supabase || !session) return;
+    if (accept) {
+      await supabase.from('friendships').update({
+        status: 'accepted',
+        updated_at: new Date().toISOString(),
+      }).eq('id', friendshipId);
+    } else {
+      await supabase.from('friendships').delete().eq('id', friendshipId);
+    }
+    fetchFriendships(session.user.id);
+  };
+
+  const removeFriendship = async (friendshipId: string) => {
+    if (!supabase || !session) return;
+    await supabase.from('friendships').delete().eq('id', friendshipId);
+    fetchFriendships(session.user.id);
+  };
+
+  const searchUsersByUsername = async (q: string): Promise<FriendProfile[]> => {
+    if (!supabase || !session || !q.trim()) return [];
+    const uid = session.user.id;
+    const cleanQ = q.trim().replace(/^@/, '');
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, username, bio, avatar_url')
+      .ilike('username', `%${cleanQ}%`)
+      .neq('id', uid)
+      .limit(15);
+
+    if (error || !data) return [];
+    return data.map((p: any) => ({
+      id: p.id,
+      username: p.username ?? undefined,
+      bio: p.bio ?? undefined,
+      avatarUrl: p.avatar_url ?? undefined,
+    }));
+  };
 
   // Supabase Database Fetchers — Database is the single source of truth
   const fetchLibrary = (targetUid?: string) => {
@@ -540,7 +696,7 @@ export default function App() {
       let localLib: Series[] = [];
       let localWatch: TmdbResult[] = [];
       try {
-        const [p, l, w, a, ban, la, un, bi] = await Promise.all([
+        const [p, l, w, a, ban, la, un, bi, fr] = await Promise.all([
           AsyncStorage.getItem(STORAGE_KEY),
           AsyncStorage.getItem(LIBRARY_KEY),
           AsyncStorage.getItem(WATCHLIST_KEY),
@@ -549,6 +705,7 @@ export default function App() {
           AsyncStorage.getItem(LANG_KEY),
           AsyncStorage.getItem(USERNAME_KEY),
           AsyncStorage.getItem(BIO_KEY),
+          AsyncStorage.getItem(FRIENDS_KEY),
         ]);
         if (!isMounted) return;
         if (p) setPersonal(JSON.parse(p));
@@ -565,6 +722,9 @@ export default function App() {
         if (la === 'en' || la === 'pt') setLang(la);
         if (un) setUsername(un);
         if (bi) setBio(bi);
+        if (fr) {
+          try { setFriends(JSON.parse(fr)); } catch {}
+        }
       } catch {
         // storage fallback
       }
@@ -734,6 +894,7 @@ export default function App() {
           if (s?.user?.id) {
             fetchLibrary(s.user.id);
             fetchWatchlist(s.user.id);
+            fetchFriendships(s.user.id);
           }
           if (!s) setReady(true);
         })
@@ -854,6 +1015,22 @@ export default function App() {
       )
       .subscribe();
 
+    // Realtime listener on friendships table
+    const friendsChannel = supabase
+      .channel(`friendships-realtime-${session.user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'friendships',
+        },
+        () => {
+          fetchFriendships(session.user.id);
+        },
+      )
+      .subscribe();
+
     // Visibility / focus listener to re-sync immediately when phone screen turns on, app is foregrounded, or user switches tabs
     let visibilityCleanup = () => {};
     if (Platform.OS === 'web' && typeof document !== 'undefined') {
@@ -878,6 +1055,7 @@ export default function App() {
       profileChannel.unsubscribe();
       watchlistChannel.unsubscribe();
       seriesChannel.unsubscribe();
+      friendsChannel.unsubscribe();
       visibilityCleanup();
       appStateSub.remove();
     };
@@ -1343,6 +1521,12 @@ export default function App() {
           lang={lang}
           onChangeLang={changeLanguage}
           onNavigateTab={goToTab}
+          friends={friends}
+          currentUserId={session?.user?.id}
+          onSendFriendRequest={sendFriendRequest}
+          onRespondFriendRequest={respondFriendRequest}
+          onRemoveFriendship={removeFriendship}
+          onSearchUsers={searchUsersByUsername}
         />
       )}
     </Animated.View>
@@ -1790,6 +1974,23 @@ function Library({
   const [query, setQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [catalogResults, setCatalogResults] = useState<TmdbResult[]>([]);
+  const [isCompact, setIsCompact] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem(LIBRARY_VIEW_KEY)
+      .then((val) => {
+        if (val !== null) setIsCompact(val === 'grid');
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const toggleViewMode = () => {
+    setIsCompact((prev) => {
+      const next = !prev;
+      AsyncStorage.setItem(LIBRARY_VIEW_KEY, next ? 'grid' : 'list').catch(() => undefined);
+      return next;
+    });
+  };
 
   useEffect(() => {
     const q = query.trim();
@@ -1834,6 +2035,11 @@ function Library({
     <View style={styles.flex}>
       <View style={styles.libraryHeader}>
         <Text style={styles.pageTitle}>{t.library}</Text>
+        {!isSearchingCatalog && (
+          <Pressable onPress={toggleViewMode} style={wlSt.viewModeBtn}>
+            <Text style={wlSt.viewModeIcon}>{isCompact ? '☰ List' : '▦ Grid'}</Text>
+          </Pressable>
+        )}
       </View>
 
       <View style={styles.searchBarContainer}>
@@ -1950,10 +2156,75 @@ function Library({
             }}
           />
         )
+      ) : isCompact ? (
+        <FlatList
+          key={`lib-grid-${filteredMyLibrary.length}`}
+          data={filteredMyLibrary}
+          extraData={filteredMyLibrary}
+          numColumns={3}
+          keyExtractor={(s, idx) => `grid-${s.mediaType ?? 'series'}-${s.tmdbId ?? s.title}-${idx}`}
+          contentContainerStyle={wlSt.gridContainer}
+          columnWrapperStyle={wlSt.gridRow}
+          showsVerticalScrollIndicator={false}
+          overScrollMode="always"
+          bounces
+          ListEmptyComponent={
+            <View style={{ marginTop: 14 }}>
+              <Empty
+                text={
+                  filter === 'movies'
+                    ? (lang === 'pt'
+                        ? 'Não tens filmes na tua biblioteca. Pesquisa acima para adicionar!'
+                        : 'No movies in your library. Search above to add!')
+                    : filter === 'series'
+                    ? (lang === 'pt'
+                        ? 'Não tens séries na tua biblioteca. Pesquisa acima para adicionar!'
+                        : 'No series in your library. Search above to add!')
+                    : (lang === 'pt'
+                        ? 'A tua biblioteca está vazia. Pesquisa acima para adicionar filmes e séries!'
+                        : 'Your library is empty. Search above to add filmes e séries!')
+                }
+              />
+            </View>
+          }
+          renderItem={({ item }) => {
+            const watched = progress(item);
+            const isMovie = item.mediaType === 'movie';
+            const isDone = !isMovie && item.totalEpisodes > 0 && watched >= item.totalEpisodes;
+            const epSub = isMovie
+              ? (watched >= 1 ? (lang === 'pt' ? 'Filme · Visto' : 'Movie · Watched') : (lang === 'pt' ? 'Filme' : 'Movie'))
+              : (item.totalEpisodes > 0
+                  ? `${watched}/${item.totalEpisodes} eps${isDone ? ' ✓' : ''}`
+                  : (lang === 'pt' ? 'Série' : 'Series'));
+            const badgeText = isMovie
+              ? (watched >= 1 ? (lang === 'pt' ? 'Filme' : 'Movie') : (lang === 'pt' ? 'Filme' : 'Movie'))
+              : (item.totalEpisodes > 0 ? `${watched}/${item.totalEpisodes}` : null);
+
+            return (
+              <Pressable onPress={() => open(item)} style={wlSt.gridCard}>
+                <View style={wlSt.gridPoster}>
+                  {item.posterPath ? (
+                    <Image source={{ uri: posterUrl(item.posterPath) }} style={wlSt.gridPosterImg} resizeMode="cover" />
+                  ) : (
+                    <Text style={homeSt.fallbackPosterText}>{item.title.slice(0, 1)}</Text>
+                  )}
+                  {badgeText ? (
+                    <View style={[homeSt.epBadge, isDone && { borderColor: '#2E7D32' }]}>
+                      <Text style={[homeSt.epBadgeText, isDone && { color: '#68D391' }]}>{badgeText}</Text>
+                    </View>
+                  ) : null}
+                </View>
+                <Text style={wlSt.gridTitle} numberOfLines={1}>{item.title}</Text>
+                <Text style={[wlSt.gridSubtitle, isDone && { color: '#68D391' }]}>{epSub}</Text>
+              </Pressable>
+            );
+          }}
+        />
       ) : (
         <FlatList
+          key={`lib-list-${filteredMyLibrary.length}`}
           data={filteredMyLibrary}
-          keyExtractor={(s) => `${s.mediaType ?? 'series'}-${s.tmdbId ?? s.title}`}
+          keyExtractor={(s, idx) => `list-${s.mediaType ?? 'series'}-${s.tmdbId ?? s.title}-${idx}`}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
           overScrollMode="always"
@@ -2019,6 +2290,22 @@ function Watchlist({
   const t = i18n[lang];
   const [isCompact, setIsCompact] = useState(true);
   const [query, setQuery] = useState('');
+
+  useEffect(() => {
+    AsyncStorage.getItem(WATCHLIST_VIEW_KEY)
+      .then((val) => {
+        if (val !== null) setIsCompact(val === 'grid');
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const toggleViewMode = () => {
+    setIsCompact((prev) => {
+      const next = !prev;
+      AsyncStorage.setItem(WATCHLIST_VIEW_KEY, next ? 'grid' : 'list').catch(() => undefined);
+      return next;
+    });
+  };
   const [searching, setSearching] = useState(false);
   const [catalogResults, setCatalogResults] = useState<TmdbResult[]>([]);
 
@@ -2054,14 +2341,12 @@ function Watchlist({
   return (
     <View style={styles.flex}>
       <View style={styles.libraryHeader}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          <Text style={styles.pageTitle}>{t.watchlist}</Text>
-          {!isSearchingCatalog && (
-            <Pressable onPress={() => setIsCompact(!isCompact)} style={wlSt.viewModeBtn}>
-              <Text style={wlSt.viewModeIcon}>{isCompact ? '☰ List' : '▦ Grid'}</Text>
-            </Pressable>
-          )}
-        </View>
+        <Text style={styles.pageTitle}>{t.watchlist}</Text>
+        {!isSearchingCatalog && (
+          <Pressable onPress={toggleViewMode} style={wlSt.viewModeBtn}>
+            <Text style={wlSt.viewModeIcon}>{isCompact ? '☰ List' : '▦ Grid'}</Text>
+          </Pressable>
+        )}
       </View>
 
       <View style={styles.searchBarContainer}>
@@ -2290,6 +2575,12 @@ function Profile({
   lang,
   onChangeLang,
   onNavigateTab,
+  friends = [],
+  currentUserId,
+  onSendFriendRequest,
+  onRespondFriendRequest,
+  onRemoveFriendship,
+  onSearchUsers,
 }: {
   library: Series[];
   watchlist: TmdbResult[];
@@ -2312,11 +2603,60 @@ function Profile({
   lang: Language;
   onChangeLang: (l: Language) => void;
   onNavigateTab: (tab: Tab) => void;
+  friends?: Friendship[];
+  currentUserId?: string;
+  onSendFriendRequest?: (targetUserId: string) => Promise<{ error?: string }>;
+  onRespondFriendRequest?: (friendshipId: string, accept: boolean) => Promise<void>;
+  onRemoveFriendship?: (friendshipId: string) => Promise<void>;
+  onSearchUsers?: (query: string) => Promise<FriendProfile[]>;
 }) {
   const t = i18n[lang];
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [draftUsername, setDraftUsername] = useState(username);
   const [draftBio, setDraftBio] = useState(bio);
+
+  const [friendsModalOpen, setFriendsModalOpen] = useState(false);
+  const [friendsTab, setFriendsTab] = useState<'my' | 'add' | 'requests'>('my');
+  const [friendQuery, setFriendQuery] = useState('');
+  const [friendSearching, setFriendSearching] = useState(false);
+  const [userSearchResults, setUserSearchResults] = useState<FriendProfile[]>([]);
+  const [requestSendingId, setRequestSendingId] = useState<string | null>(null);
+
+  const acceptedFriends = useMemo(
+    () => (friends || []).filter((f) => f.status === 'accepted'),
+    [friends],
+  );
+
+  const pendingIncoming = useMemo(
+    () => (friends || []).filter((f) => f.status === 'pending' && f.friendId === currentUserId),
+    [friends, currentUserId],
+  );
+
+  const pendingOutgoing = useMemo(
+    () => (friends || []).filter((f) => f.status === 'pending' && f.userId === currentUserId),
+    [friends, currentUserId],
+  );
+
+  useEffect(() => {
+    const q = friendQuery.trim();
+    if (q.length < 2) {
+      setUserSearchResults([]);
+      setFriendSearching(false);
+      return;
+    }
+    setFriendSearching(true);
+    const timer = setTimeout(() => {
+      if (onSearchUsers) {
+        onSearchUsers(q)
+          .then((res) => setUserSearchResults(res))
+          .catch(() => setUserSearchResults([]))
+          .finally(() => setFriendSearching(false));
+      } else {
+        setFriendSearching(false);
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [friendQuery, onSearchUsers]);
 
   useEffect(() => {
     setDraftUsername(username);
@@ -2459,6 +2799,34 @@ function Profile({
             <Text style={profSt.dashLabel} numberOfLines={1}>{t.onWatchlist}</Text>
           </View>
         </View>
+
+        {/* Friends Bar / Action */}
+        <Pressable
+          onPress={() => setFriendsModalOpen(true)}
+          style={profSt.friendsBar}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+            <View style={profSt.friendsIconCircle}>
+              <Text style={{ fontSize: 18 }}>👥</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={profSt.friendsBarTitle}>{t.friends}</Text>
+              <Text style={profSt.friendsBarSubtitle} numberOfLines={1}>
+                {acceptedFriends.length === 0
+                  ? t.noFriendsYet
+                  : `${acceptedFriends.length} ${t.friendsCount.toLowerCase()}`}
+              </Text>
+            </View>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            {pendingIncoming.length > 0 && (
+              <View style={profSt.friendsBadge}>
+                <Text style={profSt.friendsBadgeText}>{pendingIncoming.length}</Text>
+              </View>
+            )}
+            <Text style={profSt.friendsChevron}>›</Text>
+          </View>
+        </Pressable>
 
         {/* Continue Watching section in Profile */}
         <View style={{ marginTop: 22 }}>
@@ -2816,6 +3184,270 @@ function Profile({
               );
             }}
           />
+        </SafeAreaView>
+      </Modal>
+
+      {/* Friends Modal */}
+      <Modal visible={friendsModalOpen} animationType="slide">
+        <SafeAreaView style={styles.safe}>
+          <View style={catSt.header}>
+            <Pressable onPress={() => setFriendsModalOpen(false)}>
+              <Text style={styles.back}>‹ {t.close}</Text>
+            </Pressable>
+            <Text style={catSt.title}>{t.friends}</Text>
+          </View>
+
+          {/* Segmented Tabs */}
+          <View style={profSt.friendsTabsRow}>
+            <Pressable
+              onPress={() => setFriendsTab('my')}
+              style={[profSt.friendsTabBtn, friendsTab === 'my' && profSt.friendsTabBtnActive]}
+            >
+              <Text style={[profSt.friendsTabBtnText, friendsTab === 'my' && profSt.friendsTabBtnTextActive]}>
+                {t.myFriends} ({acceptedFriends.length})
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setFriendsTab('add')}
+              style={[profSt.friendsTabBtn, friendsTab === 'add' && profSt.friendsTabBtnActive]}
+            >
+              <Text style={[profSt.friendsTabBtnText, friendsTab === 'add' && profSt.friendsTabBtnTextActive]}>
+                + {t.addFriend}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setFriendsTab('requests')}
+              style={[profSt.friendsTabBtn, friendsTab === 'requests' && profSt.friendsTabBtnActive]}
+            >
+              <Text style={[profSt.friendsTabBtnText, friendsTab === 'requests' && profSt.friendsTabBtnTextActive]}>
+                {t.pendingRequests}{pendingIncoming.length > 0 ? ` (${pendingIncoming.length})` : ''}
+              </Text>
+            </Pressable>
+          </View>
+
+          <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 14 }}>
+            {friendsTab === 'my' && (
+              acceptedFriends.length === 0 ? (
+                <View style={{ marginTop: 24, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 36, marginBottom: 12 }}>👥</Text>
+                  <Empty text={t.noFriendsYet} />
+                  <Pressable
+                    onPress={() => setFriendsTab('add')}
+                    style={[styles.primaryButton, { marginTop: 20, paddingHorizontal: 24 }]}
+                  >
+                    <Text style={styles.primaryButtonText}>+ {t.addFriend}</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <FlatList
+                  data={acceptedFriends}
+                  keyExtractor={(f) => f.id}
+                  showsVerticalScrollIndicator={false}
+                  renderItem={({ item: f }) => {
+                    const prof = f.friendProfile;
+                    return (
+                      <View style={profSt.friendCard}>
+                        <View style={profSt.friendCardLeft}>
+                          <View style={profSt.friendAvatar}>
+                            {prof?.avatarUrl ? (
+                              <Image source={{ uri: prof.avatarUrl }} style={profSt.friendAvatarImg} />
+                            ) : (
+                              <Text style={{ fontSize: 18 }}>👤</Text>
+                            )}
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={profSt.friendUsername}>
+                              {prof?.username ? `@${prof.username}` : '@user'}
+                            </Text>
+                            {prof?.bio ? (
+                              <Text style={profSt.friendBio} numberOfLines={1}>{prof.bio}</Text>
+                            ) : null}
+                          </View>
+                        </View>
+                        <Pressable
+                          onPress={() => onRemoveFriendship?.(f.id)}
+                          style={profSt.friendActionBtnSecondary}
+                        >
+                          <Text style={profSt.friendActionBtnSecondaryText}>{t.removeFriend}</Text>
+                        </Pressable>
+                      </View>
+                    );
+                  }}
+                />
+              )
+            )}
+
+            {friendsTab === 'add' && (
+              <View style={{ flex: 1 }}>
+                <View style={[styles.searchBarContainer, { marginHorizontal: 0, marginTop: 0, marginBottom: 12 }]}>
+                  <SearchIcon size={16} color={C.bordeaux} />
+                  <TextInput
+                    value={friendQuery}
+                    onChangeText={setFriendQuery}
+                    placeholder={t.searchUsers}
+                    placeholderTextColor="#7e6060"
+                    autoCapitalize="none"
+                    style={styles.searchBarInput}
+                  />
+                  {friendSearching ? (
+                    <ActivityIndicator size="small" color={C.gold} style={{ marginRight: 6 }} />
+                  ) : null}
+                  {friendQuery ? (
+                    <Pressable onPress={() => setFriendQuery('')} hitSlop={8} style={{ padding: 4 }}>
+                      <Text style={{ color: C.muted, fontSize: 13, fontWeight: '700' }}>✕</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+
+                {friendQuery.trim().length < 2 ? (
+                  <View style={{ marginTop: 20, paddingHorizontal: 10 }}>
+                    <Text style={{ color: C.muted, fontSize: 14, textAlign: 'center', lineHeight: 20 }}>
+                      {t.friendSearchHint}
+                    </Text>
+                  </View>
+                ) : userSearchResults.length === 0 && !friendSearching ? (
+                  <View style={{ marginTop: 20 }}>
+                    <Empty
+                      text={
+                        lang === 'pt'
+                          ? `Nenhum utilizador encontrado com "${friendQuery}".`
+                          : `No users found matching "${friendQuery}".`
+                      }
+                    />
+                  </View>
+                ) : (
+                  <FlatList
+                    data={userSearchResults}
+                    keyExtractor={(u) => u.id}
+                    showsVerticalScrollIndicator={false}
+                    renderItem={({ item: u }) => {
+                      const isFriend = acceptedFriends.some(
+                        (f) => f.userId === u.id || f.friendId === u.id,
+                      );
+                      const isOutgoing = pendingOutgoing.some(
+                        (f) => f.friendId === u.id,
+                      );
+                      const incomingReq = pendingIncoming.find(
+                        (f) => f.userId === u.id,
+                      );
+
+                      return (
+                        <View style={profSt.friendCard}>
+                          <View style={profSt.friendCardLeft}>
+                            <View style={profSt.friendAvatar}>
+                              {u.avatarUrl ? (
+                                <Image source={{ uri: u.avatarUrl }} style={profSt.friendAvatarImg} />
+                              ) : (
+                                <Text style={{ fontSize: 18 }}>👤</Text>
+                              )}
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <Text style={profSt.friendUsername}>
+                                {u.username ? `@${u.username}` : '@user'}
+                              </Text>
+                              {u.bio ? (
+                                <Text style={profSt.friendBio} numberOfLines={1}>{u.bio}</Text>
+                              ) : null}
+                            </View>
+                          </View>
+
+                          {isFriend ? (
+                            <View style={[profSt.friendActionBtnSecondary, { borderColor: C.gold }]}>
+                              <Text style={[profSt.friendActionBtnSecondaryText, { color: C.gold }]}>
+                                ✓ {t.alreadyFriends}
+                              </Text>
+                            </View>
+                          ) : isOutgoing ? (
+                            <View style={profSt.friendActionBtnSecondary}>
+                              <Text style={profSt.friendActionBtnSecondaryText}>
+                                ⏱ {t.requestSent}
+                              </Text>
+                            </View>
+                          ) : incomingReq ? (
+                            <Pressable
+                              onPress={() => onRespondFriendRequest?.(incomingReq.id, true)}
+                              style={profSt.friendActionBtn}
+                            >
+                              <Text style={profSt.friendActionBtnText}>✓ {t.accept}</Text>
+                            </Pressable>
+                          ) : (
+                            <Pressable
+                              onPress={async () => {
+                                setRequestSendingId(u.id);
+                                await onSendFriendRequest?.(u.id);
+                                setRequestSendingId(null);
+                              }}
+                              disabled={requestSendingId === u.id}
+                              style={profSt.friendActionBtn}
+                            >
+                              {requestSendingId === u.id ? (
+                                <ActivityIndicator size="small" color={C.cream} />
+                              ) : (
+                                <Text style={profSt.friendActionBtnText}>+ {t.sendRequest}</Text>
+                              )}
+                            </Pressable>
+                          )}
+                        </View>
+                      );
+                    }}
+                  />
+                )}
+              </View>
+            )}
+
+            {friendsTab === 'requests' && (
+              pendingIncoming.length === 0 ? (
+                <View style={{ marginTop: 24, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 36, marginBottom: 12 }}>📬</Text>
+                  <Empty text={t.noRequests} />
+                </View>
+              ) : (
+                <FlatList
+                  data={pendingIncoming}
+                  keyExtractor={(f) => f.id}
+                  showsVerticalScrollIndicator={false}
+                  renderItem={({ item: f }) => {
+                    const prof = f.friendProfile;
+                    return (
+                      <View style={profSt.friendCard}>
+                        <View style={profSt.friendCardLeft}>
+                          <View style={profSt.friendAvatar}>
+                            {prof?.avatarUrl ? (
+                              <Image source={{ uri: prof.avatarUrl }} style={profSt.friendAvatarImg} />
+                            ) : (
+                              <Text style={{ fontSize: 18 }}>👤</Text>
+                            )}
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={profSt.friendUsername}>
+                              {prof?.username ? `@${prof.username}` : '@user'}
+                            </Text>
+                            {prof?.bio ? (
+                              <Text style={profSt.friendBio} numberOfLines={1}>{prof.bio}</Text>
+                            ) : null}
+                          </View>
+                        </View>
+                        <View style={{ flexDirection: 'row', gap: 6 }}>
+                          <Pressable
+                            onPress={() => onRespondFriendRequest?.(f.id, true)}
+                            style={profSt.friendActionBtn}
+                          >
+                            <Text style={profSt.friendActionBtnText}>✓ {t.accept}</Text>
+                          </Pressable>
+                          <Pressable
+                            onPress={() => onRespondFriendRequest?.(f.id, false)}
+                            style={profSt.friendActionBtnSecondary}
+                          >
+                            <Text style={profSt.friendActionBtnSecondaryText}>✕ {t.decline}</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    );
+                  }}
+                />
+              )
+            )}
+          </View>
         </SafeAreaView>
       </Modal>
 
@@ -5026,6 +5658,150 @@ const profSt = StyleSheet.create({
     fontWeight: '600',
     opacity: 0.65,
     letterSpacing: 0.8,
+  },
+  friendsBar: {
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginTop: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  friendsIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  friendsBarTitle: {
+    color: C.cream,
+    fontSize: 15.5,
+    fontWeight: '700',
+  },
+  friendsBarSubtitle: {
+    color: C.muted,
+    fontSize: 13,
+    marginTop: 2,
+  },
+  friendsBadge: {
+    backgroundColor: C.bordeaux,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    marginRight: 4,
+  },
+  friendsBadgeText: {
+    color: C.cream,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  friendsChevron: {
+    color: C.muted,
+    fontSize: 22,
+    fontWeight: '700',
+  },
+  friendsTabsRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderColor: C.border,
+    paddingHorizontal: 16,
+    backgroundColor: C.bg,
+  },
+  friendsTabBtn: {
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  friendsTabBtnActive: {
+    borderBottomColor: C.gold,
+  },
+  friendsTabBtnText: {
+    color: C.muted,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  friendsTabBtnTextActive: {
+    color: C.gold,
+  },
+  friendCard: {
+    backgroundColor: C.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: 12,
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  friendCardLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  friendAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: C.surface2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  friendAvatarImg: {
+    width: '100%',
+    height: '100%',
+  },
+  friendUsername: {
+    color: C.cream,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  friendBio: {
+    color: C.muted,
+    fontSize: 13,
+    marginTop: 2,
+  },
+  friendActionBtn: {
+    backgroundColor: C.bordeaux,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  friendActionBtnText: {
+    color: C.cream,
+    fontSize: 13.5,
+    fontWeight: '700',
+  },
+  friendActionBtnSecondary: {
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  friendActionBtnSecondaryText: {
+    color: C.muted,
+    fontSize: 13,
+    fontWeight: '700',
   },
 });
 
