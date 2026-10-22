@@ -2262,9 +2262,15 @@ function Home({
           <Text style={[styles.pageTitle, { marginTop: 0 }]}>{t.home}</Text>
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingBottom: 2 }}>
-          <Pressable onPress={() => setChangelogOpen(true)} style={homeSt.versionBadge} hitSlop={10}>
-            <Text style={homeSt.versionBadgeText}>v1.4.0 ✦</Text>
-          </Pressable>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={homeSt.novidadesLabel}>
+              {lang === 'pt' ? 'Novidades:' : 'What\'s New:'}
+            </Text>
+            <Pressable onPress={() => setChangelogOpen(true)} style={homeSt.versionBadgeRed} hitSlop={10}>
+              <Text style={homeSt.popcornBgEmoji}>🍿</Text>
+              <Text style={homeSt.versionBadgeTextWhite}>v1.4.0 ✦</Text>
+            </Pressable>
+          </View>
           <Image source={require('./assets/icon.png')} style={[homeSt.titleIcon, { marginBottom: 0 }]} />
         </View>
       </View>
@@ -3092,7 +3098,9 @@ function FriendProfileModal({
   const t = i18n[lang];
   const { width } = useWindowDimensions();
   const safeWidth = width && width > 0 ? width : SCREEN_W;
-  const col3Width = Math.floor((Math.min(safeWidth, 480) - 32 - 16) / 3);
+  const numCols = safeWidth > 1024 ? 8 : safeWidth > 768 ? 6 : safeWidth > 480 ? 5 : 4;
+  const colWidth = Math.floor((safeWidth - 32 - (numCols - 1) * 8) / numCols);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
   const [profile, setProfile] = useState<FriendProfile>(user);
   const [series, setSeries] = useState<Series[]>(
@@ -3371,27 +3379,27 @@ function FriendProfileModal({
             </View>
           </View>
 
-          {/* Clean Stats Row (24 Vistas | 5 A Ver | 142 Eps) */}
+          {/* Clean Stats Row (Conteúdo Visto | Episódios | A Ver | Por Ver) */}
           <View style={profSt.cleanStatsRow}>
-            <View style={profSt.cleanStatCol}>
+            <Pressable onPress={() => setActiveTab('completed')} style={profSt.cleanStatCol}>
               <Text style={profSt.cleanStatNum}>{completedList.length}</Text>
-              <Text style={profSt.cleanStatLbl}>{t.watchedSeriesCount}</Text>
-            </View>
+              <Text style={profSt.cleanStatLbl}>{lang === 'pt' ? 'Conteúdo Visto' : 'Watched Content'}</Text>
+            </Pressable>
             <View style={profSt.cleanStatDivider} />
             <View style={profSt.cleanStatCol}>
+              <Text style={profSt.cleanStatNum}>{totalEpisodes.toLocaleString()}</Text>
+              <Text style={profSt.cleanStatLbl}>{lang === 'pt' ? 'Episódios' : 'Episodes'}</Text>
+            </View>
+            <View style={profSt.cleanStatDivider} />
+            <Pressable onPress={() => setActiveTab('watching')} style={profSt.cleanStatCol}>
               <Text style={profSt.cleanStatNum}>{watchingList.length}</Text>
               <Text style={profSt.cleanStatLbl}>{t.currentlyWatching}</Text>
-            </View>
+            </Pressable>
             <View style={profSt.cleanStatDivider} />
-            <View style={profSt.cleanStatCol}>
-              <Text style={profSt.cleanStatNum}>{totalEpisodes}</Text>
-              <Text style={profSt.cleanStatLbl}>{t.epsCount}</Text>
-            </View>
-            <View style={profSt.cleanStatDivider} />
-            <View style={profSt.cleanStatCol}>
+            <Pressable onPress={() => setActiveTab('watchlist')} style={profSt.cleanStatCol}>
               <Text style={profSt.cleanStatNum}>{watchlist.length}</Text>
               <Text style={profSt.cleanStatLbl}>{t.userWatchlist}</Text>
-            </View>
+            </Pressable>
           </View>
 
           {/* Minimalist Text Tabs (Todas | A Ver | Por Ver | Visto) */}
@@ -3449,7 +3457,7 @@ function FriendProfileModal({
                       <Pressable
                         key={`friend-comp-${s.tmdbId ?? s.title}-${idx}`}
                         onPress={() => onOpenSeries(s)}
-                        style={[wlSt.gridCard, { width: col3Width }]}
+                        style={{ width: colWidth, alignItems: 'center', marginBottom: 12 }}
                       >
                         <View style={profSt.cleanGridPoster}>
                           {s.posterPath ? (
@@ -3484,7 +3492,7 @@ function FriendProfileModal({
                       <Pressable
                         key={`friend-watching-${s.tmdbId ?? s.title}-${idx}`}
                         onPress={() => onOpenSeries(s)}
-                        style={[wlSt.gridCard, { width: col3Width }]}
+                        style={{ width: colWidth, alignItems: 'center', marginBottom: 12 }}
                       >
                         <View style={profSt.cleanGridPoster}>
                           {s.posterPath ? (
@@ -3525,7 +3533,7 @@ function FriendProfileModal({
                       <Pressable
                         key={`friend-all-${s.tmdbId ?? s.title}-${idx}`}
                         onPress={() => onOpenSeries(s)}
-                        style={[wlSt.gridCard, { width: col3Width }]}
+                        style={{ width: colWidth, alignItems: 'center', marginBottom: 12 }}
                       >
                         <View style={profSt.cleanGridPoster}>
                           {s.posterPath ? (
@@ -3559,7 +3567,7 @@ function FriendProfileModal({
                       <Pressable
                         key={`friend-wl-${w.id}-${idx}`}
                         onPress={() => onOpenSeries(w)}
-                        style={[wlSt.gridCard, { width: col3Width }]}
+                        style={{ width: colWidth, alignItems: 'center', marginBottom: 12 }}
                       >
                         <View style={profSt.cleanGridPoster}>
                           {w.posterPath ? (
@@ -4051,6 +4059,11 @@ function Profile({
     [library],
   );
 
+  const totalEpisodesCount = useMemo(
+    () => library.reduce((sum, s) => sum + (s.mediaType === 'movie' ? 0 : (s.watchedEpisodes ?? 0)), 0),
+    [library],
+  );
+
   const continueWatching = useMemo(
     () =>
       library
@@ -4133,12 +4146,17 @@ function Profile({
           </View>
         </View>
 
-        {/* Clean Open Stats Row (Vistas | A Ver | Por Ver | Amigos) */}
+        {/* Clean Open Stats Row (Conteúdo Visto | Episódios | A Ver | Por Ver | Amigos) */}
         <View style={profSt.cleanStatsRow}>
           <Pressable onPress={() => setActiveTab('watched')} style={profSt.cleanStatCol}>
             <Text style={profSt.cleanStatNum}>{completedSeries.length}</Text>
-            <Text style={profSt.cleanStatLbl}>{t.watched}</Text>
+            <Text style={profSt.cleanStatLbl}>{lang === 'pt' ? 'Conteúdo Visto' : 'Watched Content'}</Text>
           </Pressable>
+          <View style={profSt.cleanStatDivider} />
+          <View style={profSt.cleanStatCol}>
+            <Text style={profSt.cleanStatNum}>{totalEpisodesCount.toLocaleString()}</Text>
+            <Text style={profSt.cleanStatLbl}>{lang === 'pt' ? 'Episódios' : 'Episodes'}</Text>
+          </View>
           <View style={profSt.cleanStatDivider} />
           <Pressable onPress={() => setActiveTab('watching')} style={profSt.cleanStatCol}>
             <Text style={profSt.cleanStatNum}>{continueWatching.length}</Text>
@@ -6382,6 +6400,47 @@ const authSt = StyleSheet.create({
 });
 
 const homeSt = StyleSheet.create({
+  novidadesLabel: {
+    color: C.cream,
+    fontSize: 12.5,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  versionBadgeRed: {
+    position: 'relative',
+    overflow: 'hidden',
+    backgroundColor: '#DC2626',
+    borderWidth: 1.5,
+    borderColor: '#EF4444',
+    borderRadius: 12,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#EF4444',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 5,
+    elevation: 4,
+  },
+  popcornBgEmoji: {
+    position: 'absolute',
+    right: 2,
+    bottom: -2,
+    fontSize: 13,
+    opacity: 0.4,
+  },
+  versionBadgeTextWhite: {
+    color: '#FFFFFF',
+    fontSize: 11.5,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    zIndex: 2,
+    textShadowColor: 'rgba(0, 0, 0, 0.4)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
   versionBadge: {
     backgroundColor: 'rgba(212, 175, 55, 0.12)',
     borderWidth: 1,
@@ -7074,24 +7133,26 @@ const profSt = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-around',
     marginVertical: 18,
-    paddingHorizontal: 16,
+    paddingHorizontal: 6,
   },
   cleanStatCol: {
     flex: 1,
     alignItems: 'center',
+    paddingHorizontal: 2,
   },
   cleanStatNum: {
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: '800',
     color: C.cream,
     letterSpacing: 0.2,
   },
   cleanStatLbl: {
-    fontSize: 12.5,
+    fontSize: 10.5,
     color: C.muted,
-    marginTop: 4,
+    marginTop: 3,
     fontWeight: '600',
     textAlign: 'center',
+    lineHeight: 13,
   },
   cleanStatDivider: {
     width: 1,
