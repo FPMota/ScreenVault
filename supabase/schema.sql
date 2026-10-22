@@ -29,6 +29,7 @@ alter table public.series_entries add column if not exists last_watched bigint;
 alter table public.series_entries drop constraint if exists series_entries_user_id_title_key;
 alter table public.series_entries drop constraint if exists series_entries_user_media_title_key;
 alter table public.series_entries add constraint series_entries_user_media_title_key unique (user_id, media_type, title);
+create index if not exists series_entries_user_id_idx on public.series_entries(user_id);
 
 alter table public.series_entries enable row level security;
 
@@ -72,6 +73,8 @@ create table if not exists public.watchlist (
   created_at timestamptz not null default now(),
   unique (user_id, tmdb_id, media_type)
 );
+
+create index if not exists watchlist_user_id_idx on public.watchlist(user_id);
 
 alter table public.watchlist enable row level security;
 
