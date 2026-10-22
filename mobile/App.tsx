@@ -2037,6 +2037,66 @@ function SignIn({
 
 // ─── Home Screen ──────────────────────────────────────────────────────────────
 
+
+const CHANGELOG_FEATURES = [
+  {
+    icon: '⏱️',
+    title: { pt: 'Tempo Total Assistido', en: 'Total Watch Time' },
+    desc: {
+      pt: 'Calcula automaticamente os dias e horas que já investiste em séries e filmes no teu perfil e no dos teus amigos.',
+      en: 'Automatically calculates the days and hours you spent watching shows and movies on your profile and friends\' profiles.',
+    },
+  },
+  {
+    icon: '▦',
+    title: { pt: 'Vista em Grelha ou Linha', en: 'Grid vs. List View' },
+    desc: {
+      pt: 'Alterna no teu perfil entre vista em grelha cinematográfica com múltiplos posters por linha ou vista em lista.',
+      en: 'Choose how to view titles on your profile: multiple posters per row in cinema grid or detailed list mode.',
+    },
+  },
+  {
+    icon: '🗂️',
+    title: { pt: 'Novos Filtros Rápidos', en: 'Quick Category Filters' },
+    desc: {
+      pt: 'Navega instantaneamente entre Todas, A Ver, Por Ver e Visto no perfil pessoal e de amigos.',
+      en: 'Instantly toggle between All, Watching, Watchlist, and Watched on your profile and friends\' profiles.',
+    },
+  },
+  {
+    icon: '👥',
+    title: { pt: 'Comunidade & Amizades', en: 'Friends & Social Sync' },
+    desc: {
+      pt: 'Descobre outros utilizadores reais, envia pedidos de amizade e explora as séries e progresso dos teus amigos.',
+      en: 'Discover real users, send friend requests, and browse your friends\' collections and watch progress.',
+    },
+  },
+  {
+    icon: '🎨',
+    title: { pt: 'Paleta Luxury Noir', en: 'Luxury Noir Palette' },
+    desc: {
+      pt: 'Design refinado e elegante com tons pretos aveludados, bordeaux cinema e apontamentos dourados.',
+      en: 'Refined, elegant design with deep velvet blacks, cinema bordeaux, and gold accents.',
+    },
+  },
+  {
+    icon: '⚙️',
+    title: { pt: 'Foto & Capa Sincronizadas', en: 'Avatar & Banner Sync' },
+    desc: {
+      pt: 'Personaliza a tua imagem de perfil e capa com sincronização na nuvem em tempo real.',
+      en: 'Customize your profile picture and banner with real-time cloud synchronization.',
+    },
+  },
+  {
+    icon: '📱',
+    title: { pt: 'Otimização Mobile & PWA', en: 'Mobile & PWA Polish' },
+    desc: {
+      pt: 'Scroll fixo no topo, barra de navegação ajustada para o iPhone e navegação fluida.',
+      en: 'Fixed top scroll, snug bottom navigation bar on iPhone, and smooth touch experience.',
+    },
+  },
+];
+
 function Home({
   library,
   progress,
@@ -2053,6 +2113,7 @@ function Home({
   lang: Language;
 }) {
   const t = i18n[lang];
+  const [changelogOpen, setChangelogOpen] = useState(false);
 
   // In-progress series sorted by most recently touched
   const continueWatching = useMemo(() =>
@@ -2079,9 +2140,9 @@ function Home({
           <Text style={[styles.pageTitle, { marginTop: 0 }]}>{t.home}</Text>
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingBottom: 2 }}>
-          <View style={homeSt.versionBadge}>
-            <Text style={homeSt.versionBadgeText}>v1.4.0</Text>
-          </View>
+          <Pressable onPress={() => setChangelogOpen(true)} style={homeSt.versionBadge} hitSlop={10}>
+            <Text style={homeSt.versionBadgeText}>v1.4.0 ✦</Text>
+          </Pressable>
           <Image source={require('./assets/icon.png')} style={[homeSt.titleIcon, { marginBottom: 0 }]} />
         </View>
       </View>
@@ -2201,6 +2262,83 @@ function Home({
         )}
       </View>
       </ScrollView>
+
+      {/* Version Changelog Modal */}
+      <Modal visible={changelogOpen} animationType="slide" transparent onRequestClose={() => setChangelogOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modal, { maxHeight: '85%' }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+              <View>
+                <Text style={styles.modalTitle}>
+                  {lang === 'pt' ? 'Novidades da Versão' : 'What\'s New'}
+                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                  <View style={homeSt.versionBadge}>
+                    <Text style={homeSt.versionBadgeText}>v1.4.0</Text>
+                  </View>
+                  <Text style={{ color: C.muted, fontSize: 12 }}>
+                    {lang === 'pt' ? 'Lançamento Recente' : 'Latest Release'}
+                  </Text>
+                </View>
+              </View>
+              <Pressable
+                onPress={() => setChangelogOpen(false)}
+                hitSlop={12}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  backgroundColor: C.surface2,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Text style={{ color: C.muted, fontSize: 18, fontWeight: '700' }}>✕</Text>
+              </Pressable>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
+              <View style={{ gap: 10, paddingBottom: 16 }}>
+                {CHANGELOG_FEATURES.map((item, idx) => (
+                  <View
+                    key={`feat-${idx}`}
+                    style={{
+                      flexDirection: 'row',
+                      gap: 12,
+                      backgroundColor: C.surface2,
+                      padding: 12,
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: C.border,
+                      alignItems: 'flex-start',
+                    }}
+                  >
+                    <Text style={{ fontSize: 22, marginTop: 1 }}>{item.icon}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: C.cream, fontSize: 15, fontWeight: '700' }}>
+                        {item.title[lang]}
+                      </Text>
+                      <Text style={{ color: C.muted, fontSize: 13, marginTop: 3, lineHeight: 18 }}>
+                        {item.desc[lang]}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+
+              <Pressable
+                onPress={() => setChangelogOpen(false)}
+                style={[styles.primaryButton, { marginTop: 4, marginBottom: 10 }]}
+              >
+                <Text style={styles.primaryButtonText}>
+                  {lang === 'pt' ? 'Entendido!' : 'Got it!'}
+                </Text>
+              </Pressable>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
     </View>
   );
 }
@@ -4182,9 +4320,15 @@ function Profile({
           )}
         </View>
 
-        {/* App Version Footer */}
-        <View style={profSt.versionFooter}>
-          <Text style={profSt.versionText}>{t.versionText}</Text>
+        {/* End of Profile Indicator: Popcorn bucket with finish message */}
+        <View style={profSt.endOfListBlock}>
+          <Text style={profSt.popcornIcon}>🍿</Text>
+          <Text style={profSt.endOfListTitle}>
+            {lang === 'pt' ? 'Chegaste ao fim!' : 'You\'ve reached the end!'}
+          </Text>
+          <Text style={profSt.endOfListSubtitle}>
+            {lang === 'pt' ? 'É tudo por agora. Bom descanso e boas maratonas!' : 'That\'s all for now. Enjoy your shows!'}
+          </Text>
         </View>
       </ScrollView>
 
@@ -6475,6 +6619,31 @@ const profSt = StyleSheet.create({
     fontWeight: '600',
     opacity: 0.65,
     letterSpacing: 0.8,
+  },
+  endOfListBlock: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 32,
+    paddingHorizontal: 24,
+    marginTop: 16,
+  },
+  popcornIcon: {
+    fontSize: 38,
+    marginBottom: 8,
+  },
+  endOfListTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: C.cream,
+    letterSpacing: 0.5,
+    textAlign: 'center',
+  },
+  endOfListSubtitle: {
+    fontSize: 13,
+    color: C.muted,
+    marginTop: 4,
+    textAlign: 'center',
+    lineHeight: 18,
   },
   friendsBar: {
     backgroundColor: C.surface,
