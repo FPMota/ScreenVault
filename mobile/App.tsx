@@ -407,23 +407,26 @@ export default function App() {
       setLoadingUsers(true);
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, username, bio, avatar_url, updated_at')
+        .select('*')
         .neq('id', uid)
-        .order('updated_at', { ascending: false })
         .limit(100);
 
-      if (!error && data) {
+      if (error) {
+        console.warn('Supabase fetch profiles notice:', error.message || error);
+        return;
+      }
+      if (data) {
         setAllUsers(
           data.map((p: any) => ({
             id: p.id,
-            username: p.username ?? undefined,
+            username: p.username || (p.email ? p.email.split('@')[0] : `user_${p.id.slice(0, 6)}`),
             bio: p.bio ?? undefined,
             avatarUrl: p.avatar_url ?? undefined,
           }))
         );
       }
-    } catch {
-      // offline fallback
+    } catch (err) {
+      console.warn('Error in fetchAllUsers:', err);
     } finally {
       setLoadingUsers(false);
     }
@@ -1281,7 +1284,7 @@ export default function App() {
     });
   };
 
-  const addFromCatalog = async (item: TmdbResult) => {
+  const addFromCatalog = async (item: TmdbResult, initialPersonal?: PersonalData) => {
     let totalEpisodes = item.totalEpisodes ?? (item.mediaType === 'movie' ? 1 : 0);
     let overview = item.overview;
     let posterPath = item.posterPath;
@@ -1295,23 +1298,29 @@ export default function App() {
       if (!backdropPath) backdropPath = details.backdropPath;
     }
 
-    const entry: Series = {
-      title: item.title,
-      mediaType: item.mediaType,
-      tmdbId: item.id,
-      posterPath,
-      backdropPath,
-      overview,
-      collection: 'watching',
-      watchedEpisodes: 0,
-      totalEpisodes,
-    };
-
     setLibrary((cur) => {
+      const existingPersonal = initialPersonal || personal[item.title] || {};
+      const watched = existingPersonal.watchedEpisodes ?? 0;
+      const isDone = totalEpisodes > 0 && watched >= totalEpisodes;
+      const initialCollection: Collection = isDone ? 'up_to_date' : (watched > 0 ? 'watching' : 'watching');
+
+      const entry: Series = {
+        title: item.title,
+        mediaType: item.mediaType,
+        tmdbId: item.id,
+        posterPath,
+        backdropPath,
+        overview,
+        collection: initialCollection,
+        watchedEpisodes: watched,
+        totalEpisodes,
+        lastWatched: existingPersonal.lastWatched ?? Date.now(),
+      };
+
       const filtered = cur.filter((s) => !(s.tmdbId === item.id && s.mediaType === item.mediaType));
       const next = [entry, ...filtered];
       AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(next)).catch(() => undefined);
-      syncSeries(entry, {});
+      syncSeries(entry, existingPersonal);
       return next;
     });
 
@@ -1957,7 +1966,7 @@ function Home({
   // In-progress series sorted by most recently touched
   const continueWatching = useMemo(() =>
     library
-      .filter((s) => s.collection === 'watching' && progress(s) < s.totalEpisodes)
+      .filter((s) => s.collection === 'watching' && progress(s) < s.totalEpisodes && progress(s) > 0)
       .sort((a, b) => lastWatched(b) - lastWatched(a)),
     [library, progress, lastWatched],
   );
@@ -2693,6 +2702,10 @@ function FriendsScreen({
   const [friendQuery, setFriendQuery] = useState('');
   const [sendingId, setSendingId] = useState<string | null>(null);
 
+  useEffect(() => {
+    onRefreshUsers();
+  }, [friendsTab]);
+
   const acceptedFriends = friends.filter((f) => f.status === 'accepted');
   const pendingIncoming = friends.filter((f) => f.status === 'pending' && f.friendId === currentUserId);
   const pendingOutgoing = friends.filter((f) => f.status === 'pending' && f.userId === currentUserId);
@@ -3113,7 +3126,7 @@ function Profile({
   // Continue watching list (sorted by lastWatched)
   const continueWatching = useMemo(() =>
     library
-      .filter((s) => s.collection === 'watching' && progress(s) < s.totalEpisodes)
+      .filter((s) => s.collection === 'watching' && progress(s) < s.totalEpisodes && progress(s) > 0)
       .sort((a, b) => lastWatched(b) - lastWatched(a)),
     [library, progress, lastWatched],
   );
@@ -4381,7 +4394,7 @@ function SeriesDetailModal({
   personal: PersonalData;
   progress: number;
   onClose: () => void;
-  onAddToLibrary: (tmdbItem: TmdbResult) => void;
+  onAddToLibrary: (tmdbItem: TmdbResult, initialPersonal?: PersonalData) => void;
   onRemoveFromLibrary: () => void;
   onAddToWatchlist: (tmdbItem: TmdbResult) => void;
   onRemoveFromWatchlist: (tmdbItem: TmdbResult) => void;
@@ -4464,9 +4477,6 @@ function SeriesDetailModal({
 
   // Toggle episode watched for series
   const toggleEpisodeWatched = (seasonNum: number, epNum: number) => {
-    if (destinationState !== 'library') {
-      handleDestinationChange('library');
-    }
     const epKey = `S${seasonNum}E${epNum}`;
     const nextList = new Set(watchedEpSet);
     if (nextList.has(epKey)) {
@@ -4475,11 +4485,19 @@ function SeriesDetailModal({
       nextList.add(epKey);
     }
     const arr = Array.from(nextList);
-    onUpdatePersonal({
+    const newCount = arr.filter((k) => k !== 'MOVIE').length;
+    const newPersonal: PersonalData = {
+      ...personal,
       watchedEpList: arr,
-      watchedEpisodes: arr.filter((k) => k !== 'MOVIE').length,
+      watchedEpisodes: newCount,
       lastWatched: Date.now(),
-    });
+    };
+
+    onUpdatePersonal(newPersonal);
+
+    if (destinationState !== 'library') {
+      handleDestinationChange('library', newPersonal);
+    }
   };
 
   // Check if a season is fully watched
@@ -4506,9 +4524,6 @@ function SeriesDetailModal({
 
   // Toggle all episodes in a season
   const toggleSeasonWatched = (sNum: number) => {
-    if (destinationState !== 'library') {
-      handleDestinationChange('library');
-    }
     const sInfo = details.seasons.find((s) => s.seasonNumber === sNum);
     const eps = seasonEpisodes[sNum];
     const count = eps?.length ?? sInfo?.episodeCount ?? 0;
@@ -4537,11 +4552,19 @@ function SeriesDetailModal({
     }
 
     const arr = Array.from(nextList);
-    onUpdatePersonal({
+    const newCount = arr.filter((k) => k !== 'MOVIE').length;
+    const newPersonal: PersonalData = {
+      ...personal,
       watchedEpList: arr,
-      watchedEpisodes: arr.filter((k) => k !== 'MOVIE').length,
+      watchedEpisodes: newCount,
       lastWatched: Date.now(),
-    });
+    };
+
+    onUpdatePersonal(newPersonal);
+
+    if (destinationState !== 'library') {
+      handleDestinationChange('library', newPersonal);
+    }
   };
 
   // Check if entire series is fully watched
@@ -4560,9 +4583,6 @@ function SeriesDetailModal({
 
   // Toggle all episodes across all seasons
   const toggleEntireSeriesWatched = () => {
-    if (destinationState !== 'library') {
-      handleDestinationChange('library');
-    }
     const nextList = new Set(watchedEpSet);
     const alreadyWatched = isSeriesFullyWatched;
 
@@ -4591,11 +4611,19 @@ function SeriesDetailModal({
     }
 
     const arr = Array.from(nextList);
-    onUpdatePersonal({
+    const newCount = arr.filter((k) => k !== 'MOVIE').length;
+    const newPersonal: PersonalData = {
+      ...personal,
       watchedEpList: arr,
-      watchedEpisodes: arr.filter((k) => k !== 'MOVIE').length,
+      watchedEpisodes: newCount,
       lastWatched: Date.now(),
-    });
+    };
+
+    onUpdatePersonal(newPersonal);
+
+    if (destinationState !== 'library') {
+      handleDestinationChange('library', newPersonal);
+    }
   };
 
   // Toggle watched for Movie
@@ -4618,7 +4646,7 @@ function SeriesDetailModal({
     });
   };
 
-  const handleDestinationChange = (newDest: 'library' | 'watchlist' | 'none') => {
+  const handleDestinationChange = (newDest: 'library' | 'watchlist' | 'none', customPersonal?: PersonalData) => {
     if (newDest === destinationState) return;
 
     if (newDest === 'library') {
@@ -4636,7 +4664,7 @@ function SeriesDetailModal({
         posterPath: details.posterPath || item.posterPath,
         overview: details.overview || item.overview,
         totalEpisodes: details.totalEpisodes,
-      });
+      }, customPersonal);
     } else if (newDest === 'watchlist') {
       if (inLibrary) {
         onRemoveFromLibrary();
