@@ -420,143 +420,6 @@ export function mergeWatchlist(local: TmdbResult[], remote: TmdbResult[]): { mer
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 
-// ─── Curated Suggested Profiles (Ordered by Mutual Friends) ───────────────────
-
-const SUGGESTED_PROFILES: FriendProfile[] = [
-  {
-    id: 'sugg-cinema-lover',
-    username: 'cinema_lover',
-    bio: 'Apaixonado por thrillers psicológicos, Christopher Nolan e David Fincher 🎬',
-    avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&h=300&fit=crop&crop=faces',
-    bannerUrl: 'https://image.tmdb.org/t/p/w780/9faGSFi5jam6pDWGNd0p8J24gvm.jpg',
-    mutualFriendsCount: 5,
-    mutualFriendName: 'Sofia e mais 4 amigos em comum',
-    sampleSeries: [
-      { title: 'Breaking Bad', mediaType: 'series', tmdbId: 1396, posterPath: '/ztkUQFLlC19CCMYHW9o1zWhJRNq.jpg', collection: 'up_to_date', watchedEpisodes: 62, totalEpisodes: 62 },
-      { title: 'The Bear', mediaType: 'series', tmdbId: 136315, posterPath: '/tz4NlM0z6Bw3WJz0f2b1Zz1z1Z.jpg', collection: 'watching', watchedEpisodes: 16, totalEpisodes: 28 },
-      { title: 'Severance', mediaType: 'series', tmdbId: 93405, posterPath: '/c975r0w1g0h3t3M1t0.jpg', collection: 'up_to_date', watchedEpisodes: 9, totalEpisodes: 9 },
-      { title: 'Succession', mediaType: 'series', tmdbId: 76331, posterPath: '/7HXAg3e58vG43g2y1M1t.jpg', collection: 'up_to_date', watchedEpisodes: 39, totalEpisodes: 39 },
-      { title: 'Arcane', mediaType: 'series', tmdbId: 94605, posterPath: '/fqldf2t8ztc9aiwn3w.jpg', collection: 'up_to_date', watchedEpisodes: 9, totalEpisodes: 9 },
-      { title: 'Dune: Part Two', mediaType: 'movie', tmdbId: 693134, posterPath: '/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg', collection: 'up_to_date', watchedEpisodes: 1, totalEpisodes: 1 },
-      { title: 'Oppenheimer', mediaType: 'movie', tmdbId: 872585, posterPath: '/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg', collection: 'up_to_date', watchedEpisodes: 1, totalEpisodes: 1 },
-      { title: 'Shōgun', mediaType: 'series', tmdbId: 126308, posterPath: '/7O4iVfOMQmdCSxhOg1WNzG1AgYT.jpg', collection: 'watching', watchedEpisodes: 8, totalEpisodes: 10 },
-      { title: 'Dark', mediaType: 'series', tmdbId: 70523, posterPath: '/apbrbWs8M9lyOpJYU5WXrpFbk1Z.jpg', collection: 'up_to_date', watchedEpisodes: 26, totalEpisodes: 26 },
-    ],
-  },
-  {
-    id: 'sugg-sofia-filmes',
-    username: 'sofia_filmes',
-    bio: 'Maratonista de séries dramáticas e cinema europeu independente ☕🍿',
-    avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=300&h=300&fit=crop&crop=faces',
-    bannerUrl: 'https://image.tmdb.org/t/p/w780/muth4t0L6e1f0K4t.jpg',
-    mutualFriendsCount: 4,
-    mutualFriendName: 'Tiago e mais 3 amigos em comum',
-    sampleSeries: [
-      { title: 'Fleabag', mediaType: 'series', tmdbId: 67070, posterPath: '/i7zJ8r4k1t.jpg', collection: 'up_to_date', watchedEpisodes: 12, totalEpisodes: 12 },
-      { title: 'The Crown', mediaType: 'series', tmdbId: 65494, posterPath: '/1t4r0k.jpg', collection: 'up_to_date', watchedEpisodes: 60, totalEpisodes: 60 },
-      { title: 'Past Lives', mediaType: 'movie', tmdbId: 666277, posterPath: '/k3waqVXSnvCZWfJYNtdamTgTtTA.jpg', collection: 'up_to_date', watchedEpisodes: 1, totalEpisodes: 1 },
-      { title: 'Normal People', mediaType: 'series', tmdbId: 99861, posterPath: '/t4k.jpg', collection: 'up_to_date', watchedEpisodes: 12, totalEpisodes: 12 },
-      { title: 'Poor Things', mediaType: 'movie', tmdbId: 792307, posterPath: '/kCGlIMHnOm8JPXq3rXM6c5wMxcT.jpg', collection: 'up_to_date', watchedEpisodes: 1, totalEpisodes: 1 },
-      { title: 'The White Lotus', mediaType: 'series', tmdbId: 110316, posterPath: '/t4r0k.jpg', collection: 'watching', watchedEpisodes: 10, totalEpisodes: 13 },
-    ],
-  },
-  {
-    id: 'sugg-tiago-series',
-    username: 'tiago_series',
-    bio: 'Sci-Fi nerd | Doctor Who, Expanse, Black Mirror & Star Wars 🌌',
-    avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=300&h=300&fit=crop&crop=faces',
-    bannerUrl: 'https://image.tmdb.org/t/p/w780/rkB4k.jpg',
-    mutualFriendsCount: 3,
-    mutualFriendName: 'Amigo de Sofia e Marcos',
-    sampleSeries: [
-      { title: 'Black Mirror', mediaType: 'series', tmdbId: 42009, posterPath: '/7EyeF.jpg', collection: 'up_to_date', watchedEpisodes: 27, totalEpisodes: 27 },
-      { title: 'The Expanse', mediaType: 'series', tmdbId: 63639, posterPath: '/bkf.jpg', collection: 'up_to_date', watchedEpisodes: 62, totalEpisodes: 62 },
-      { title: 'Stranger Things', mediaType: 'series', tmdbId: 66732, posterPath: '/49WJfeN0moxb9IPfGn8AIqMGskD.jpg', collection: 'up_to_date', watchedEpisodes: 34, totalEpisodes: 34 },
-      { title: 'Interstellar', mediaType: 'movie', tmdbId: 157336, posterPath: '/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg', collection: 'up_to_date', watchedEpisodes: 1, totalEpisodes: 1 },
-      { title: 'Andor', mediaType: 'series', tmdbId: 83867, posterPath: '/59AJ.jpg', collection: 'up_to_date', watchedEpisodes: 12, totalEpisodes: 12 },
-    ],
-  },
-  {
-    id: 'sugg-andreia-cine',
-    username: 'andreia_cine',
-    bio: 'Crítica amadora de cinema. Quentin Tarantino e Martin Scorsese sempre no topo ⭐',
-    avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&h=300&fit=crop&crop=faces',
-    mutualFriendsCount: 3,
-    mutualFriendName: 'Amiga de Beatriz e Tiago',
-    sampleSeries: [
-      { title: 'Pulp Fiction', mediaType: 'movie', tmdbId: 680, posterPath: '/d5iIlFn5s0ImszYzBPb8JPIfbXD.jpg', collection: 'up_to_date', watchedEpisodes: 1, totalEpisodes: 1 },
-      { title: 'The Sopranos', mediaType: 'series', tmdbId: 1399, posterPath: '/6nN.jpg', collection: 'up_to_date', watchedEpisodes: 86, totalEpisodes: 86 },
-      { title: 'Kill Bill: Vol. 1', mediaType: 'movie', tmdbId: 24, posterPath: '/v7Ta.jpg', collection: 'up_to_date', watchedEpisodes: 1, totalEpisodes: 1 },
-      { title: 'Better Call Saul', mediaType: 'series', tmdbId: 60059, posterPath: '/fC.jpg', collection: 'up_to_date', watchedEpisodes: 63, totalEpisodes: 63 },
-    ],
-  },
-  {
-    id: 'sugg-marcos-vault',
-    username: 'marcos_vault',
-    bio: 'Terror, suspense psicológico e clássicos dos anos 80 e 90 📼🕯️',
-    avatarUrl: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=300&h=300&fit=crop&crop=faces',
-    mutualFriendsCount: 2,
-    mutualFriendName: 'Amigo de Sofia',
-    sampleSeries: [
-      { title: 'The Haunting of Hill House', mediaType: 'series', tmdbId: 72844, posterPath: '/k7.jpg', collection: 'up_to_date', watchedEpisodes: 10, totalEpisodes: 10 },
-      { title: 'Mindhunter', mediaType: 'series', tmdbId: 67744, posterPath: '/fb.jpg', collection: 'up_to_date', watchedEpisodes: 19, totalEpisodes: 19 },
-      { title: 'The Shining', mediaType: 'movie', tmdbId: 694, posterPath: '/bS.jpg', collection: 'up_to_date', watchedEpisodes: 1, totalEpisodes: 1 },
-    ],
-  },
-  {
-    id: 'sugg-beatriz-filmes',
-    username: 'beatriz_filmes',
-    bio: 'Cinema de animação, Studio Ghibli e grandes produções de fantasia 🐉✨',
-    avatarUrl: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=300&h=300&fit=crop&crop=faces',
-    mutualFriendsCount: 2,
-    mutualFriendName: 'Amiga de Pedro',
-    sampleSeries: [
-      { title: 'Spirited Away', mediaType: 'movie', tmdbId: 129, posterPath: '/393.jpg', collection: 'up_to_date', watchedEpisodes: 1, totalEpisodes: 1 },
-      { title: 'House of the Dragon', mediaType: 'series', tmdbId: 94997, posterPath: '/7Q.jpg', collection: 'up_to_date', watchedEpisodes: 18, totalEpisodes: 18 },
-      { title: 'Game of Thrones', mediaType: 'series', tmdbId: 1399, posterPath: '/1X.jpg', collection: 'up_to_date', watchedEpisodes: 73, totalEpisodes: 73 },
-    ],
-  },
-  {
-    id: 'sugg-pedro-directs',
-    username: 'pedro_directs',
-    bio: 'Estudante de realização cinematográfica em Lisboa. Sempre à procura de planos sequência épicos 🎥',
-    avatarUrl: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=300&h=300&fit=crop&crop=faces',
-    mutualFriendsCount: 2,
-    mutualFriendName: 'Amigo de Andréia e Tiago',
-    sampleSeries: [
-      { title: 'Birdman', mediaType: 'movie', tmdbId: 194662, posterPath: '/rC.jpg', collection: 'up_to_date', watchedEpisodes: 1, totalEpisodes: 1 },
-      { title: 'True Detective', mediaType: 'series', tmdbId: 46648, posterPath: '/cu.jpg', collection: 'up_to_date', watchedEpisodes: 24, totalEpisodes: 24 },
-      { title: 'Fargo', mediaType: 'series', tmdbId: 57243, posterPath: '/kL.jpg', collection: 'up_to_date', watchedEpisodes: 41, totalEpisodes: 41 },
-    ],
-  },
-  {
-    id: 'sugg-carolina-tv',
-    username: 'carolina_tv',
-    bio: 'Comédias inteligentes, sitcoms e mini-séries britânicas contemporâneas 📺✨',
-    avatarUrl: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=300&h=300&fit=crop&crop=faces',
-    mutualFriendsCount: 1,
-    mutualFriendName: 'Amiga de Miguel',
-    sampleSeries: [
-      { title: 'Ted Lasso', mediaType: 'series', tmdbId: 97546, posterPath: '/5W.jpg', collection: 'up_to_date', watchedEpisodes: 34, totalEpisodes: 34 },
-      { title: 'Bojack Horseman', mediaType: 'series', tmdbId: 61222, posterPath: '/pB.jpg', collection: 'up_to_date', watchedEpisodes: 77, totalEpisodes: 77 },
-      { title: 'Abbott Elementary', mediaType: 'series', tmdbId: 135462, posterPath: '/bB.jpg', collection: 'watching', watchedEpisodes: 40, totalEpisodes: 54 },
-    ],
-  },
-  {
-    id: 'sugg-miguel-screen',
-    username: 'miguel_screen',
-    bio: 'Cinema coreano, anime moderno e histórias pós-apocalípticas 🍜🧟',
-    avatarUrl: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=300&h=300&fit=crop&crop=faces',
-    mutualFriendsCount: 1,
-    mutualFriendName: 'Amigo de Sofia',
-    sampleSeries: [
-      { title: 'Parasite', mediaType: 'movie', tmdbId: 496243, posterPath: '/7Ii.jpg', collection: 'up_to_date', watchedEpisodes: 1, totalEpisodes: 1 },
-      { title: 'Squid Game', mediaType: 'series', tmdbId: 93405, posterPath: '/dG.jpg', collection: 'up_to_date', watchedEpisodes: 9, totalEpisodes: 9 },
-      { title: 'The Last of Us', mediaType: 'series', tmdbId: 100088, posterPath: '/uK.jpg', collection: 'up_to_date', watchedEpisodes: 9, totalEpisodes: 9 },
-    ],
-  },
-];
-
 export default function App() {
   const [lang, setLang] = useState<Language>('en');
 
@@ -582,55 +445,26 @@ export default function App() {
     if (!uid) return;
     try {
       setLoadingUsers(true);
-      let dbUsers: FriendProfile[] = [];
       if (supabase) {
         const { data, error } = await supabase
           .from('profiles')
           .select('*')
           .neq('id', uid)
-          .limit(12);
+          .order('username', { ascending: true });
 
         if (!error && data) {
-          dbUsers = data.map((p: any) => ({
+          const dbUsers: FriendProfile[] = data.map((p: any) => ({
             id: p.id,
-            username: p.username || (p.email ? p.email.split('@')[0] : `user_${p.id.slice(0, 6)}`),
+            username: p.username || (p.email ? p.email.split('@')[0] : (p.full_name || `user_${p.id.slice(0, 6)}`)),
             bio: p.bio ?? undefined,
             avatarUrl: p.avatar_url ?? undefined,
             bannerUrl: p.banner_url ?? undefined,
           }));
+          setAllUsers(dbUsers);
+        } else if (error) {
+          console.warn('Error in fetchAllUsers:', error.message || error);
         }
       }
-
-      const myFriendIds = new Set(
-        friends
-          .filter((f) => f.status === 'accepted')
-          .map((f) => (f.userId === uid ? f.friendId : f.userId))
-      );
-      const existingIds = new Set([uid, ...myFriendIds]);
-
-      const pool: FriendProfile[] = [];
-
-      for (const u of dbUsers) {
-        if (!existingIds.has(u.id)) {
-          pool.push({
-            ...u,
-            mutualFriendsCount: Math.min(myFriendIds.size, 3) || 1,
-            mutualFriendName: myFriendIds.size > 0 ? `${myFriendIds.size} amigos em comum` : undefined,
-          });
-        }
-      }
-
-      for (const s of SUGGESTED_PROFILES) {
-        if (!existingIds.has(s.id) && !pool.some((p) => p.username === s.username)) {
-          pool.push(s);
-        }
-      }
-
-      const top9 = pool
-        .sort((a, b) => (b.mutualFriendsCount ?? 0) - (a.mutualFriendsCount ?? 0))
-        .slice(0, 9);
-
-      setAllUsers(top9);
     } catch (err) {
       console.warn('Error in fetchAllUsers:', err);
     } finally {
@@ -2932,9 +2766,7 @@ function FriendProfileModal({
 
   const [profile, setProfile] = useState<FriendProfile>(user);
   const [series, setSeries] = useState<Series[]>(
-    user.sampleSeries && user.sampleSeries.length > 0
-      ? user.sampleSeries
-      : (fallbackLibrary && user.id === currentUserId ? fallbackLibrary : [])
+    fallbackLibrary && user.id === currentUserId ? fallbackLibrary : []
   );
   const [watchlist, setWatchlist] = useState<TmdbResult[]>(fallbackWatchlist && user.id === currentUserId ? fallbackWatchlist : []);
   const [loading, setLoading] = useState(true);
@@ -2943,15 +2775,12 @@ function FriendProfileModal({
 
   useEffect(() => {
     setProfile(user);
-    if (user.sampleSeries && user.sampleSeries.length > 0) {
-      setSeries(user.sampleSeries);
-    }
   }, [user]);
 
   useEffect(() => {
     let mounted = true;
     const fetchUserData = async () => {
-      if (!supabase || !user.id || user.id.startsWith('sugg-')) {
+      if (!supabase || !user.id) {
         if (mounted) setLoading(false);
         return;
       }
@@ -3054,7 +2883,7 @@ function FriendProfileModal({
   );
 
   const watchingList = useMemo(
-    () => series.filter((s) => !isSeriesCompleted(s) && ((s.watchedEpisodes ?? 0) > 0 || s.collection === 'watching')),
+    () => series.filter((s) => !isSeriesCompleted(s) && ((s.watchedEpisodes ?? 0) > 0 || s.collection === 'watching' || s.collection === 'finished_airing_to_continue')),
     [series],
   );
 
