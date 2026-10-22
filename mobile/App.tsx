@@ -3302,9 +3302,34 @@ function FriendsScreen({
       {/* Header */}
       <View style={styles.libraryHeader}>
         <Text style={styles.pageTitle}>{t.friends}</Text>
-        <Pressable onPress={onRefreshUsers} style={wlSt.viewModeBtn}>
-          <Text style={wlSt.viewModeIcon}>↻ {t.refresh}</Text>
-        </Pressable>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Pressable
+            onPress={() => setFriendsTab(friendsTab === 'requests' ? 'my' : 'requests')}
+            style={[
+              wlSt.viewModeBtn,
+              { flexDirection: 'row', alignItems: 'center', gap: 6 },
+              friendsTab === 'requests' && { borderColor: C.gold, backgroundColor: C.surface2 },
+            ]}
+          >
+            <Text
+              style={[
+                wlSt.viewModeIcon,
+                friendsTab === 'requests' ? { color: C.gold } : { color: C.cream },
+              ]}
+            >
+              {t.pendingRequests}
+            </Text>
+            {pendingIncoming.length > 0 && (
+              <View style={[profSt.friendsBadge, { marginRight: 0 }]}>
+                <Text style={profSt.friendsBadgeText}>{pendingIncoming.length}</Text>
+              </View>
+            )}
+          </Pressable>
+
+          <Pressable onPress={onRefreshUsers} style={wlSt.viewModeBtn}>
+            <Text style={wlSt.viewModeIcon}>↻ {t.refresh}</Text>
+          </Pressable>
+        </View>
       </View>
 
       {/* Segmented Tabs */}
@@ -3325,22 +3350,6 @@ function FriendsScreen({
           <Text style={[profSt.friendsTabBtnText, friendsTab === 'add' && profSt.friendsTabBtnTextActive]}>
             {t.addFriend} ({allUsers.length})
           </Text>
-        </Pressable>
-
-        <Pressable
-          onPress={() => setFriendsTab('requests')}
-          style={[profSt.friendsTabBtn, friendsTab === 'requests' && profSt.friendsTabBtnActive]}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Text style={[profSt.friendsTabBtnText, friendsTab === 'requests' && profSt.friendsTabBtnTextActive]}>
-              {t.pendingRequests}
-            </Text>
-            {pendingIncoming.length > 0 && (
-              <View style={profSt.friendsBadge}>
-                <Text style={profSt.friendsBadgeText}>{pendingIncoming.length}</Text>
-              </View>
-            )}
-          </View>
         </Pressable>
       </View>
 
